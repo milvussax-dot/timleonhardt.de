@@ -12,16 +12,16 @@
   })();
 </script>
 <meta name="theme-color" content="#0b1022">
-<meta name="description" content="Browser-Spiele von timleonhardt.de: Gipfelrausch, eine 3D-Ski-Arcade, und Umlauf, ein Spiel mit einer Taste.">
+<meta name="description" content="Browser-Spiele von timleonhardt.de: Gipfelrausch, eine 3D-Ski-Arcade, Umlauf, ein Spiel mit einer Taste, und Rutschpartie, ein Rutsch-Puzzle mit 30 Leveln.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Spiele · timleonhardt.de">
-<meta property="og:description" content="Gipfelrausch und Umlauf, direkt im Browser spielen.">
+<meta property="og:description" content="Gipfelrausch, Umlauf und Rutschpartie, direkt im Browser spielen.">
 <meta property="og:url" content="https://timleonhardt.de/">
 <title>Spiele · timleonhardt.de</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1022'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%23f2f5fc'/%3E%3Ccircle cx='8' cy='24' r='2.4' fill='%23ff5a36'/%3E%3Ccircle cx='24.5' cy='8' r='2.4' fill='%23ffc94d'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@400;500;700;800&family=Rubik:wght@800&display=swap">
 <style>
 /* Layout: a short header, then one tile per game like boxes on a shelf; each tile keeps its game's own palette and type. */
 :root {
@@ -32,9 +32,11 @@
   --muted: #9aa6c6;
   --ski: #ff5a36;      /* Gipfelrausch accent */
   --orbit: #ffc94d;    /* Umlauf accent */
+  --ice: #7fd4f5;      /* Rutschpartie accent */
   --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-ski: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
   --font-orbit: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-ice: "Rubik", ui-rounded, ui-sans-serif, system-ui, sans-serif;
   color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; }
@@ -56,7 +58,12 @@ header { display: flex; flex-direction: column; gap: 10px; }
 .domain { margin: 0; font: 500 13px/1 var(--font-body); letter-spacing: 0.08em; color: var(--muted); }
 h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-spacing: -0.04em; text-wrap: balance; }
 
-.games { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px; }
+.games { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+@media (min-width: 600px) and (max-width: 899px) {
+  .games .tile { flex-direction: row; }
+  .games .tile .art { width: 42%; flex: none; aspect-ratio: auto; height: auto; min-height: 220px; }
+}
+@media (min-width: 900px) { .games { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .tile {
   display: flex; flex-direction: column; min-width: 0;
   background: var(--tile); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
@@ -69,8 +76,9 @@ h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-s
 .body { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 24px; flex: 1; }
 .kind { margin: 0; font: 500 12px/1 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
 .name { margin: 0; line-height: 0.9; }
-.ski .name { font: italic 800 48px/0.9 var(--font-ski); text-transform: uppercase; letter-spacing: 0.01em; }
-.orbit .name { font: 800 46px/0.9 var(--font-orbit); letter-spacing: -0.035em; }
+.ski .name { font: italic 800 42px/0.9 var(--font-ski); text-transform: uppercase; letter-spacing: 0.01em; }
+.orbit .name { font: 800 42px/0.9 var(--font-orbit); letter-spacing: -0.035em; }
+.ice .name { font: 800 34px/0.95 var(--font-ice); letter-spacing: -0.03em; }
 .desc { margin: 0; color: var(--muted); font-size: 15px; }
 .facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .facts li { font: 500 12px/1 var(--font-body); padding: 7px 10px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink); }
@@ -84,10 +92,13 @@ h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-s
 .tile:hover .play svg { transform: translateX(3px); }
 .ski { --accent: var(--ski); }
 .orbit { --accent: var(--orbit); }
+.ice { --accent: var(--ice); }
 
 /* Illustration motion */
 .trail { stroke-dasharray: 420; stroke-dashoffset: 0; }
 .tile:hover .trail { animation: carve 1.2s ease-out; }
+.glider { animation: glide 3.2s cubic-bezier(.25,.6,.3,1) infinite; }
+@keyframes glide { 0%, 12% { transform: translateX(-50px); } 55%, 100% { transform: translateX(0); } }
 @keyframes carve { from { stroke-dashoffset: 420; } to { stroke-dashoffset: 0; } }
 .orbiter { transform-box: view-box; transform-origin: 160px 104px; animation: spin 7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -98,7 +109,7 @@ footer p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .tile, .play svg { transition: none; }
   .tile:hover { transform: none; }
-  .orbiter, .tile:hover .trail { animation: none; }
+  .orbiter, .tile:hover .trail, .glider { animation: none; }
 }
 @media (max-width: 420px) {
   .wrap { padding-top: calc(32px + env(safe-area-inset-top, 0px)); gap: 28px; }
@@ -115,7 +126,7 @@ footer p { margin: 0; }
 
   <main class="games">
     <a class="tile ski" href="gipfelrausch/">
-      <svg class="art" viewBox="0 0 320 200" role="img" aria-label="Verschneiter Hang mit orangefarbener Skispur">
+      <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Verschneiter Hang mit orangefarbener Skispur">
         <defs>
           <linearGradient id="skiSky" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stop-color="#0a1020"/>
@@ -151,7 +162,7 @@ footer p { margin: 0; }
     </a>
 
     <a class="tile orbit" href="umlauf/">
-      <svg class="art" viewBox="0 0 320 200" role="img" aria-label="Kreisbahn mit weißem Punkt, goldenem Funken und roten Splittern">
+      <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Kreisbahn mit weißem Punkt, goldenem Funken und roten Splittern">
         <defs>
           <radialGradient id="orbGlow" cx="0.5" cy="0.52" r="0.6">
             <stop offset="0" stop-color="#1d3a7a"/>
@@ -185,6 +196,56 @@ footer p { margin: 0; }
         <h2 class="name">Umlauf.</h2>
         <p class="desc">Dein Punkt kreist ohne Pause auf der Bahn, Tippen dreht die Richtung. Sammle Funken und weich den Splittern aus.</p>
         <ul class="facts"><li>1 Taste</li><li>Bestenliste</li><li>Touch &amp; Tastatur</li></ul>
+        <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </div>
+    </a>
+    <a class="tile ice" href="rutschpartie/">
+      <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Eisfläche mit Felsen, einem roten Curlingstein und dem Haus als Ziel">
+        <defs>
+          <linearGradient id="iceRink" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f5fafd"/>
+            <stop offset="1" stop-color="#e3eff7"/>
+          </linearGradient>
+        </defs>
+        <rect width="320" height="200" fill="#dfeef6"/>
+        <rect x="20" y="16" width="280" height="168" rx="26" fill="url(#iceRink)" stroke="#b9d3e3" stroke-width="3"/>
+        <g stroke="rgba(120,165,195,0.18)" stroke-width="1">
+          <path d="M62 30v140M90 30v140M118 30v140M146 30v140M174 30v140M202 30v140M230 30v140M258 30v140"/>
+          <path d="M34 58h252M34 86h252M34 114h252M34 142h252"/>
+        </g>
+        <path d="M48 160 q 60 -14 120 -6 M150 40 q 50 10 96 2" fill="none" stroke="#ffffff" stroke-width="1.4"/>
+        <g>
+          <rect x="260" y="60" width="24" height="24" rx="6" fill="#3d5266"/><rect x="263" y="61.5" width="18" height="12" rx="5" fill="#587089"/>
+          <rect x="120" y="32" width="24" height="24" rx="6" fill="#3d5266"/><rect x="123" y="33.5" width="18" height="12" rx="5" fill="#587089"/>
+          <rect x="36" y="60" width="24" height="24" rx="6" fill="#3d5266"/><rect x="39" y="61.5" width="18" height="12" rx="5" fill="#587089"/>
+          <rect x="204" y="144" width="24" height="24" rx="6" fill="#3d5266"/><rect x="207" y="145.5" width="18" height="12" rx="5" fill="#587089"/>
+          <rect x="148" y="88" width="24" height="24" rx="6" fill="#3d5266"/><rect x="151" y="89.5" width="18" height="12" rx="5" fill="#587089"/>
+        </g>
+        <g>
+          <circle cx="244" cy="72" r="13" fill="#2a6fdb"/><circle cx="244" cy="72" r="9.8" fill="#ffffff"/>
+          <circle cx="244" cy="72" r="6.4" fill="#d7263d"/><circle cx="244" cy="72" r="2.5" fill="#ffffff"/>
+        </g>
+        <path d="M188 64 l7.5 6.5 -7.5 10 -7.5 -10 z" fill="#7a4dff"/><path d="M188 64 l7.5 6.5 -7.5 3 -7.5 -3 z" fill="#b7a1ff"/>
+        <g>
+          <path d="M231 116 l7 -3 7 2 6 -1 4 6 -2 7 -6 4 -8 -1 -7 -4 -2 -6 z" fill="#1e5f8f" stroke="#ffffff" stroke-width="1.5"/>
+        </g>
+        <g fill="#ffffff">
+          <circle cx="68" cy="40" r="7"/><circle cx="78" cy="42" r="6"/><circle cx="72" cy="47" r="6"/><circle cx="63" cy="46" r="5"/>
+        </g>
+        <path d="M84 121h-22M84 128h-30M84 135h-20" stroke="#9cc3da" stroke-width="2" stroke-linecap="round"/>
+        <g class="glider">
+          <ellipse cx="104" cy="133" rx="11.5" ry="10.5" fill="rgba(15,34,51,0.2)" transform="translate(0 3)"/>
+          <circle cx="104" cy="129.5" r="11" fill="#6f7b88"/>
+          <circle cx="104" cy="128" r="11" fill="#8b97a4"/>
+          <circle cx="104" cy="128" r="7.6" fill="#d7263d"/>
+          <rect x="97.5" y="126.6" width="13" height="2.8" rx="1.4" fill="#f2f5f8"/>
+        </g>
+      </svg>
+      <div class="body">
+        <p class="kind">Rutsch-Puzzle</p>
+        <h2 class="name">Rutschpartie</h2>
+        <p class="desc">Dein Stein gleitet übers Eis, bis er anstößt. Bring ihn ins Haus, ohne einzubrechen.</p>
+        <ul class="facts"><li>30 Level</li><li>Sterne sammeln</li><li>Wischen &amp; Pfeiltasten</li></ul>
         <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </a>

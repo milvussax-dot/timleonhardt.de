@@ -7,6 +7,7 @@ Statische Spiele-Seite auf GitHub Pages (Branch `main`, Root-Ordner).
 | `index.html` | Startseite mit der Spieleauswahl. Leitet alte Einladungslinks (`/?room=…`) und Homescreen-Apps zu Gipfelrausch weiter. |
 | `gipfelrausch/` | 3D-Ski-Arcade, Quelle liegt lokal im Ordner `Desktop/Game`. Details in `gipfelrausch/README.md`. |
 | `umlauf/` | Ein-Knopf-Spiel mit Bestenliste. |
+| `rutschpartie/` | Rutsch-Puzzle mit 30 Leveln, eine Datei. Die Level stammen aus `rutschpartie/tools/levelgen.py` (Generator und Löser mit denselben Regeln wie das Spiel). |
 | `CNAME`, `.nojekyll` | Domain und Pages-Einstellung, nicht löschen. |
 
 ## Gipfelrausch aktualisieren
