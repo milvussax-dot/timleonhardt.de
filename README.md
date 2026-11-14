@@ -89,3 +89,17 @@ js/net.js         Online-Räume (PeerJS)
 js/ui.js          Menüs, Lobby, Ergebnis, HUD
 js/…              Audio, Eingabe, Speicher, Challenges, Medaillen
 ```
+
+---
+
+# Umlauf (`/umlauf`)
+
+Ein Spiel mit einer Taste unter **https://timleonhardt.de/umlauf/**. Dein Punkt kreist auf einer Bahn, Tippen oder Leertaste dreht die Richtung. Funken sammeln, Splittern ausweichen.
+
+| Datei | Inhalt |
+|---|---|
+| `umlauf/index.html` | Das ganze Spiel (Canvas, kein Build-Schritt) |
+| `umlauf/config.js` | Supabase-URL und Publishable Key für die Online-Bestenliste |
+| `umlauf/supabase-setup.sql` | Tabelle und Funktionen, einmal im Supabase SQL Editor ausführen |
+
+Ohne Werte in `config.js` speichert die Bestenliste nur auf dem jeweiligen Gerät. Einträge löschen: in Supabase unter Table Editor → `umlauf_scores`.
