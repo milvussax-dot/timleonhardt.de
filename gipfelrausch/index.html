@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0a1020">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gipfelrausch">
+  <meta name="description" content="Gipfelrausch – 3D-Ski-Arcade mit Zeitfahren, Bot-Rennen, Slalom, Freestyle, Lawinen-Flucht und Online-Rennen.">
+  <title>Gipfelrausch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1020'/%3E%3Cpath d='M4 25L13 9l5 8 3-4 7 12z' fill='%23fff'/%3E%3Cpath d='M13 9l2.5 4-2.5 1.5-2-1z' fill='%23ff5a36'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;0,800;1,700;1,800;1,900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=202611142114">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "./js/audio.js": "./js/audio.js?v=202611142114",
+      "./js/bot.js": "./js/bot.js?v=202611142114",
+      "./js/challenges.js": "./js/challenges.js?v=202611142114",
+      "./js/course.js": "./js/course.js?v=202611142114",
+      "./js/fx.js": "./js/fx.js?v=202611142114",
+      "./js/game.js": "./js/game.js?v=202611142114",
+      "./js/input.js": "./js/input.js?v=202611142114",
+      "./js/main.js": "./js/main.js?v=202611142114",
+      "./js/medals.js": "./js/medals.js?v=202611142114",
+      "./js/model.js": "./js/model.js?v=202611142114",
+      "./js/net.js": "./js/net.js?v=202611142114",
+      "./js/rng.js": "./js/rng.js?v=202611142114",
+      "./js/skier.js": "./js/skier.js?v=202611142114",
+      "./js/storage.js": "./js/storage.js?v=202611142114",
+      "./js/ui.js": "./js/ui.js?v=202611142114",
+      "./js/weather.js": "./js/weather.js?v=202611142114",
+      "./js/world.js": "./js/world.js?v=202611142114"
+    }
+  }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud" class="hidden"></div>
+  <div id="touch" class="hidden"></div>
+  <div id="ui"></div>
+  <div id="toast" aria-live="polite"></div>
+  <div id="loading"><div class="ld-logo">Gipfel<span>rausch</span></div><div class="ld-bar"><i></i></div><p>Lift fährt hoch …</p></div>
+  <noscript><p style="color:#fff;padding:24px">Gipfelrausch braucht JavaScript.</p></noscript>
+  <script type="module" src="js/main.js?v=202611142114"></script>
+</body>
+</html>
