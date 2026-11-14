@@ -384,7 +384,7 @@ export class UI {
         <label class="field"><span>Name</span><input id="st-name" maxlength="16" value="${esc(p.name || '')}" placeholder="Dein Fahrername" autocomplete="off"></label>
         <div class="field"><span>Jacke</span><div class="swatches">${sw(COLORS, p.jacket, 'jacket')}</div></div>
         <div class="field"><span>Helm</span><div class="swatches">${sw(HELMETS, p.helmet, 'helmet')}</div></div>
-        <div class="field"><span>Grafik</span><div class="seg">${['auto', 'hoch', 'mittel', 'niedrig'].map((q) => `<button class="${q === (p.quality || 'auto') ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
+        <div class="field"><span>Grafik</span><div class="seg">${['auto', 'hoch', 'mittel', 'niedrig'].map((q) => `<button class="${q === (p.quality || 'auto') ? 'sel' : ''}" data-q="${q}">${q === 'auto' ? `Auto (${app.quality})` : q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
         ${app.isTouch ? `<div class="field"><span>Lenkung</span><div class="seg">${[['wischen', 'Wischen'], ['neigen', 'Neigen'], ['tasten', 'Tasten']].map(([k, n]) => `<button class="${k === app.steerMode() ? 'sel' : ''}" data-steer="${k}">${n}</button>`).join('')}</div></div>` : ''}
         ${app.isTouch && document.fullscreenEnabled ? `<div class="field"><span>Vollbild im Spiel</span><div class="seg"><button class="${p.fullscreen !== false ? 'sel' : ''}" data-fs="1">An</button><button class="${p.fullscreen === false ? 'sel' : ''}" data-fs="0">Aus</button></div></div>` : ''}
         <div class="field"><span>Kamera</span><div class="seg"><button class="${!p.pov ? 'sel' : ''}" data-pov="0">Verfolger</button><button class="${p.pov ? 'sel' : ''}" data-pov="1">Ich-Perspektive</button></div></div>

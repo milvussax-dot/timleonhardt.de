@@ -229,7 +229,8 @@ export class Environment {
     const shadows = quality !== 'niedrig';
     this.sun.castShadow = shadows;
     if (shadows) {
-      const sz = quality === 'hoch' ? 2048 : 1024;
+      // Handys: kleinere Schattenkarte, spart viel Rechenzeit bei kaum sichtbarem Unterschied
+      const sz = quality === 'hoch' && !matchMedia('(pointer: coarse)').matches ? 2048 : 1024;
       this.sun.shadow.mapSize.set(sz, sz);
       const cam = this.sun.shadow.camera;
       cam.left = -45; cam.right = 45; cam.top = 45; cam.bottom = -45; cam.near = 1; cam.far = 320;

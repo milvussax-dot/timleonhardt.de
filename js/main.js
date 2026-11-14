@@ -10,7 +10,8 @@ import { TRACKS } from './course.js';
 
 // Gerät: Touch/Handy und schwache Hardware erkennen
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-const weakDevice = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 3;
+// nur wirklich schwache Geräte (iPhones melden im Browser oft nur 4 Kerne, sind aber schnell)
+const weakDevice = (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
 document.body.classList.toggle('is-touch', isTouch);
 
 const app = {
@@ -27,7 +28,7 @@ const app = {
   get quality() {
     const q = this.qualitySetting;
     if (q !== 'auto') return q;
-    return isTouch ? (weakDevice ? 'niedrig' : 'mittel') : 'hoch';
+    return isTouch && weakDevice ? 'mittel' : 'hoch';
   },
   resScale: 1,
 };
@@ -36,7 +37,8 @@ if (!app.store.profile.qualityChosen && app.store.profile.quality === 'hoch') { 
 window.__gipfelrausch = app;
 
 // ---------- Renderer ----------
-const renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
+// Kantenglättung ist auf Handy-GPUs (Tile-Rendering) günstig -> überall an, außer auf sehr schwachen Geräten
+const renderer = new THREE.WebGLRenderer({ antialias: !(isTouch && weakDevice), powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -45,14 +47,19 @@ const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 60
 app.renderer = renderer;
 app.camera = camera;
 
+// nie unter 1,0 (bzw. die echte Pixeldichte, falls kleiner) – sonst wird es matschig
+app.pixelRatio = function () {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(Math.min(dpr, 1), this.prCap * this.resScale);
+};
 app.applyQuality = function () {
   const q = this.quality;
   const dpr = window.devicePixelRatio || 1;
-  const cap = q === 'hoch' ? (isTouch ? 1.6 : 2) : q === 'mittel' ? 1.25 : (isTouch ? 0.85 : 0.9);
+  const cap = q === 'hoch' ? 2 : q === 'mittel' ? (isTouch ? 1.6 : 1.25) : (isTouch ? 1.1 : 0.9);
   this.prCap = Math.min(dpr, cap);
   if (this.qualitySetting !== 'auto') this.resScale = 1;
-  renderer.setPixelRatio(Math.max(0.5, this.prCap * this.resScale));
-  const sh = q === 'hoch' || (q === 'mittel' && !isTouch);
+  renderer.setPixelRatio(this.pixelRatio());
+  const sh = q !== 'niedrig' && !(q === 'mittel' && isTouch);
   if (renderer.shadowMap.enabled !== sh) {
     renderer.shadowMap.enabled = sh;
     this.materialsDirty = true;
@@ -307,8 +314,9 @@ addEventListener('keydown', () => app.audio.init(), { once: true });
 // ---------- Schleife ----------
 let last = performance.now();
 let lastW = 0, lastH = 0, winW = 0, winH = 0;
-let gAcc = 0, gN = 0;
-// Auto-Grafik: Auflösung nachregeln, wenn die Bildrate dauerhaft einbricht oder Luft nach oben ist
+let gAcc = 0, gN = 0, gLow = 0, gPrev = null, gCapped = false;
+// Auto-Grafik: Auflösung nur senken, wenn das wirklich mehr Bilder pro Sekunde bringt.
+// Begrenzt das Gerät selbst (z. B. Stromsparmodus mit 30 fps), wird die Senkung zurückgenommen.
 function governor(dt) {
   if (app.qualitySetting !== 'auto' || document.hidden || !app.session || app.session.attract || app.session.paused) { gAcc = 0; gN = 0; return; }
   gAcc += dt; gN++;
@@ -317,9 +325,24 @@ function governor(dt) {
   gAcc = 0; gN = 0;
   const s0 = app.resScale;
   let s1 = s0;
-  if (fps < 42) s1 = Math.max(0.55, s0 - 0.12);
-  else if (fps > 57 && s0 < 1) s1 = Math.min(1, s0 + 0.08);
-  if (s1 !== s0) { app.resScale = s1; renderer.setPixelRatio(Math.max(0.5, app.prCap * s1)); resize(); }
+  if (gPrev && gPrev.scale > s0) {
+    // letzte Senkung prüfen: hat sie etwas gebracht?
+    if (fps < gPrev.fps + 3) { s1 = gPrev.scale; gCapped = true; }
+    gPrev = null;
+  } else if (fps < 45 && !gCapped) {
+    gLow++;
+    if (gLow >= 2 && s0 > 0.6) { s1 = Math.max(0.6, s0 - 0.1); gPrev = { scale: s0, fps }; gLow = 0; }
+    else if (gLow >= 2 && renderer.shadowMap.enabled) {
+      // Auflösung schon unten und immer noch zu langsam: lieber Schatten aus als noch unschärfer
+      renderer.shadowMap.enabled = false;
+      app.session.scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); });
+      gLow = 0;
+    }
+  } else {
+    gLow = 0;
+    if (fps > 56 && s0 < 1) s1 = Math.min(1, s0 + 0.1);
+  }
+  if (s1 !== s0) { app.resScale = s1; renderer.setPixelRatio(app.pixelRatio()); resize(); }
 }
 function frame(now) {
   requestAnimationFrame(frame);
