@@ -21,10 +21,10 @@ export const MODES = [
 export const modeById = (id) => MODES.find((m) => m.id === id) || MODES[0];
 
 export function boardKey(mode, trackId) {
-  // "2:" = kürzere Strecken; alte Bestzeiten und Ghosts passen nicht mehr dazu
-  if (mode === 'zeit' || mode === 'bots') return 'race2:' + trackId;
-  if (mode === 'slalom') return 'slalom2:' + trackId;
-  if (mode === 'freestyle') return 'freestyle2:' + trackId;
+  // "3:" = breite Karten mit mehreren Wegen; ältere Bestzeiten und Ghosts passen nicht mehr dazu
+  if (mode === 'zeit' || mode === 'bots') return 'race3:' + trackId;
+  if (mode === 'slalom') return 'slalom3:' + trackId;
+  if (mode === 'freestyle') return 'freestyle3:' + trackId;
   return 'lawine';
 }
 
@@ -74,6 +74,8 @@ export class Session {
     this.racers = [];
     this.remotes = new Map();
     this.cs = { h: 0, look: new THREE.Vector3(), shake: 0, init: false, orbit: Math.random() * 6, focus: 0, switchT: 0 };
+    this.pov = !!app.store.profile.pov;
+    this.povActive = false;
     const shadows = app.quality !== 'niedrig';
 
     const startS = -1.5;
@@ -453,6 +455,8 @@ export class Session {
   updateVisuals(dt) {
     for (const r of this.racers) {
       r.model.update(r.st, dt, this.course);
+      // in der Ich-Perspektive den eigenen Fahrer ausblenden
+      if (r.isPlayer) r.model.root.visible = !this.povActive;
       if (dt > 0) this.fx.spray(r.st, dt);
     }
     if (this.ghost) this.updateGhost(dt);
@@ -532,8 +536,11 @@ export class Session {
     const st = this.focus().st;
     let hd = st.heading;
     if (!st.grounded && !st.grind && st.crash <= 0) hd = Math.atan2(st.vx, -st.vz);
+    // Ich-Perspektive nur während der eigenen Fahrt (nicht im Countdown, beim Sturz oder nach dem Ziel)
+    const pov = this.pov && !this.attract && this.focus() === this.player && this.state === 'run' && st.crash <= 0 && !(this.player && this.player.finished);
+    if (pov !== this.povActive) { this.povActive = pov; cs.povBlend = 0; }
     if (!cs.init) cs.h = hd;
-    cs.h += wrapAngle(hd - cs.h) * Math.min(1, dt * 3.2);
+    cs.h += wrapAngle(hd - cs.h) * Math.min(1, dt * (pov ? 9 : 3.2));
     const sp = st.speed || 0;
     const sx = Math.sin(cs.h), cz = -Math.cos(cs.h);
     let px, py, pz, lx, ly, lz, lagK = 9;
@@ -556,6 +563,17 @@ export class Session {
       px = st.x + Math.sin(a) * 7; pz = st.z + Math.cos(a) * 7; py = st.y + 2.6;
       lx = st.x; ly = st.y + 1; lz = st.z;
       lagK = 3;
+    } else if (pov) {
+      // Augenhöhe, in der Hocke tiefer; Blick in Fahrtrichtung, Saltos und Drehungen werden ausgeglichen
+      const air = !st.grounded && !st.grind;
+      const eye = 1.62 - (st.tuckIn ? 0.42 : 0) - (st.brakeIn ? 0.08 : 0);
+      cs.eye = lerp(cs.eye || eye, eye, Math.min(1, dt * 8));
+      px = st.x + sx * 0.3; pz = st.z + cz * 0.3; py = st.y + cs.eye;
+      const pitch = air ? clamp(Math.atan2(st.vy, Math.hypot(st.vx, st.vz)) * 0.55, -0.55, 0.3) : (st.groundPitch || 0);
+      const ahead = 12;
+      lx = st.x + sx * ahead; lz = st.z + cz * ahead; ly = py + Math.tan(pitch) * ahead - 1.7;
+      cs.povBlend = Math.min(1, (cs.povBlend || 0) + dt * 2.5);
+      lagK = 8 + 50 * cs.povBlend;
     } else {
       const crashing = st.crash > 0 ? 1 : 0;
       const dist = 5.0 + Math.min(2.6, sp * 0.06) + crashing * 2.2;
@@ -564,13 +582,13 @@ export class Session {
       px = st.x - sx * dist; pz = st.z - cz * dist; py = st.y + h;
       lx = st.x + sx * 6; ly = st.y + 1.0; lz = st.z + cz * 6;
     }
-    const gy = this.course.heightAt(px, pz) + 1.3;
+    const gy = this.course.heightAt(px, pz) + (pov ? 0.9 : 1.3);
     if (py < gy) py = gy;
     tmpV.set(px, py, pz);
     if (!cs.init) { cam.position.copy(tmpV); cs.look.set(lx, ly, lz); cs.init = true; }
     else {
       cam.position.lerp(tmpV, 1 - Math.exp(-dt * lagK));
-      cs.look.lerp(tmpV2.set(lx, ly, lz), 1 - Math.exp(-dt * 12));
+      cs.look.lerp(tmpV2.set(lx, ly, lz), 1 - Math.exp(-dt * (pov ? 8 + 22 * cs.povBlend : 12)));
     }
     let shake = cs.shake;
     if (this.av && this.avGap != null && !this.player.finished) shake = Math.max(shake, clamp(1 - this.avGap / 70, 0, 1) * 0.5);
@@ -587,10 +605,10 @@ export class Session {
     // Kamera legt sich mit in die Kurve
     const rollT = ride ? -(st.edge || 0) * clamp(sp / 26, 0, 1) * 0.13 : 0;
     cs.roll = lerp(cs.roll || 0, rollT, Math.min(1, dt * 4));
-    if (Math.abs(cs.roll) > 0.0005) cam.rotateZ(cs.roll);
+    if (Math.abs(cs.roll) > 0.0005) cam.rotateZ(cs.roll * (pov ? 1.5 : 1));
     // Sichtfeld: Tempo, Boost und Schub aus dem Kantenwechsel
     cs.kick = Math.max(0, (cs.kick || 0) - dt * 2.2);
-    const fov = 66 + clamp(sp - 8, 0, 34) * 0.62 + (st.boosting || st.boost > 0 ? 6 : 0) + cs.kick * 4;
+    const fov = (pov ? 74 : 66) + clamp(sp - 8, 0, 34) * (pov ? 0.5 : 0.62) + (st.boosting || st.boost > 0 ? 6 : 0) + cs.kick * 4;
     if (Math.abs(cam.fov - fov) > 0.05) {
       cam.fov = lerp(cam.fov, fov, Math.min(1, dt * 4));
       cam.updateProjectionMatrix();

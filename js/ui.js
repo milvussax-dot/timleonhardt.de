@@ -24,9 +24,17 @@ const WICON = {
   sturm: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 13h16a3 3 0 1 1-3 3M3 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   nebel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h18M5 12h14M3 16h18M7 20h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
-const SEC_LABEL = { open: 'Hang', woods: 'Wald', boulders: 'Felsen', fork: 'Gabelung', drops: 'Stufen', gully: 'Rinne', moguls: 'Buckel', jumps: 'Sprünge', ridge: 'Grat', meadow: 'Alm', lake: 'Eissee', chasm: 'Spalte', creek: 'Bach' };
+const SEC_LABEL = { bowl: 'Freier Hang', split2: '2 Wege', split3: '3 Wege', terraces: 'Terrassen', open: 'Hang', woods: 'Wald', boulders: 'Felsen', fork: 'Gabelung', drops: 'Stufen', gully: 'Rinne', moguls: 'Buckel', jumps: 'Sprünge', ridge: 'Grat', meadow: 'Alm', lake: 'Eissee', chasm: 'Spalte', creek: 'Bach' };
 const COLORS = ['#ff5a36', '#ffb547', '#3ee08f', '#22c3ee', '#3b82f6', '#a855f7', '#ec4899', '#f5f7fa', '#1f2937'];
 const HELMETS = ['#f5f7fa', '#1f2937', '#ff5a36', '#ffd23f', '#22c3ee', '#a855f7'];
+
+// Kurzinfo für Karten: wie oft man sich den Weg aussuchen kann
+function routeInfo(t) {
+  const r = t.recipe;
+  const choices = r.filter((x) => ['split2', 'split3', 'terraces', 'chasm', 'creek', 'bowl'].includes(x)).length;
+  const max = r.includes('split3') ? 3 : 2;
+  return `${choices}× Wegwahl · bis zu ${max} Wege · ${[...new Set(r)].map((x) => SEC_LABEL[x] || x).join(' · ')}`;
+}
 
 export function valueStr(mode, v) {
   if (v == null) return '–';
@@ -118,10 +126,10 @@ export class UI {
           <button class="btn-big primary" data-act="play" data-autofocus><span>Spielen</span><small>Zeitfahren · Bots · Slalom · Freestyle · Lawine</small></button>
           <button class="btn-big" data-act="online"><span>Online</span><small>Raum erstellen oder per Code beitreten</small></button>
           <button class="btn-big" data-act="challenges"><span>Challenges</span><small>${doneN}/3 heute erledigt · ${medals} Medaillen</small></button>
-          <button class="btn-big" data-act="board"><span>Bestenliste</span><small>Deine Top-Läufe pro Strecke</small></button>
+          <button class="btn-big" data-act="board"><span>Bestenliste</span><small>Deine Top-Läufe pro Karte</small></button>
           <button class="btn-big" data-act="settings"><span>Einstellungen</span><small>Name, Outfit, Grafik, Sound</small></button>
         </nav>
-        <div class="menu-foot"><kbd>←</kbd><kbd>→</kbd> lenken · <kbd>↑</kbd> Hocke · <kbd>↓</kbd> bremsen · <kbd>Leertaste</kbd> springen · <kbd>Q</kbd><kbd>E</kbd> Tricks · <kbd>Shift</kbd> Boost<br>In der Luft: <kbd>↑</kbd><kbd>↓</kbd> Flips · <kbd>←</kbd><kbd>→</kbd> Spins · <kbd>Q</kbd><kbd>E</kbd> halten = Grabs</div>
+        <div class="menu-foot"><kbd>←</kbd><kbd>→</kbd> lenken · <kbd>↑</kbd> Hocke · <kbd>↓</kbd> bremsen · <kbd>Leertaste</kbd> springen · <kbd>Q</kbd><kbd>E</kbd> Tricks · <kbd>Shift</kbd> Boost · <kbd>V</kbd> Kamera<br>In der Luft: <kbd>↑</kbd><kbd>↓</kbd> Flips · <kbd>←</kbd><kbd>→</kbd> Spins · <kbd>Q</kbd><kbd>E</kbd> halten = Grabs</div>
       </div>`, (el) => {
       el.querySelector('[data-act=play]').onclick = () => this.modes();
       el.querySelector('[data-act=online]').onclick = () => this.online();
@@ -162,7 +170,7 @@ export class UI {
     if (mode === 'lawine') { const b = s.best('lawine'); return b ? `Rekord ${valueStr('lawine', b)}` : 'Noch kein Lauf'; }
     const list = mode === 'freestyle' ? PARKS : TRACKS;
     const n = list.filter((t) => s.medal(boardKey(mode, t.id)) > 0).length;
-    return `${n}/${list.length} Strecken mit Medaille`;
+    return `${n}/${list.length} Karten mit Medaille`;
   }
 
   // ---------------- Setup ----------------
@@ -180,7 +188,7 @@ export class UI {
         <span class="tc-top"><span class="diff d${t.tier}">${t.diff}</span>${medalSvg(medal, 26)}</span>
         <span class="tc-name">${t.name}</span>
         <span class="tc-meta">${(t.length / 1000).toLocaleString('de-DE', { minimumFractionDigits: 2 })} km · ${best != null ? 'Best ' + valueStr(mode, best) : 'noch kein Lauf'}</span>
-        ${t.recipe && (mode === 'zeit' || mode === 'bots') ? `<span class="tc-secs">${[...new Set(t.recipe)].map((r) => SEC_LABEL[r] || r).join(' · ')}</span>` : ''}
+        ${t.recipe && (mode === 'zeit' || mode === 'bots') ? `<span class="tc-secs">${routeInfo(t)}</span>` : ''}
       </button>`;
     }).join('');
     const lawineInfo = mode === 'lawine' ? `<div class="info-card">
@@ -196,7 +204,7 @@ export class UI {
     const goalLine = tracks.length ? (() => { const g = nextGoal(mode, selId, store.medal(boardKey(mode, selId))); return g ? `Nächstes Ziel – ${g}` : 'Alle Medaillen geholt. Respekt!'; })() : '';
     this.show('setup', `${this.topbar(m.name)}
       <div class="setup">
-        ${tracks.length ? `<h4>Strecke</h4><div class="track-grid">${trackCards}</div><div class="goal">${goalLine}</div>` : lawineInfo}
+        ${tracks.length ? `<h4>${mode === 'freestyle' ? 'Park' : 'Karte'}</h4><div class="track-grid">${trackCards}</div><div class="goal">${goalLine}</div>` : lawineInfo}
         <h4>Wetter &amp; Tageszeit</h4>
         <div class="chips">${WEATHER_LIST.map((w) => `<button class="chip ${w === S.weather ? 'sel' : ''}" data-weather="${w}">${WICON[w]}<span>${WEATHERS[w].name}</span></button>`).join('')}</div>
         ${botsRow}
@@ -227,7 +235,7 @@ export class UI {
           <div class="or"><span>oder beitreten</span></div>
           <div class="join-row"><input id="on-code" maxlength="5" placeholder="CODE" value="${esc(prefill)}" autocomplete="off" spellcheck="false"><button class="btn" data-act="join">Beitreten</button></div>
         </div>
-        <p class="note">Peer-to-Peer über WebRTC, bis zu 8 Spieler. Wer den Raum erstellt, ist Host und wählt Modus, Strecke und Wetter. Teile einfach den Einladungslink.</p>
+        <p class="note">Peer-to-Peer über WebRTC, bis zu 8 Spieler. Wer den Raum erstellt, ist Host und wählt Modus, Karte und Wetter. Teile einfach den Einladungslink.</p>
         <div class="status" id="on-status" role="status"></div>
       </div>`, (el) => {
       this.bindBack(el);
@@ -290,7 +298,7 @@ export class UI {
               <div class="chips">${WEATHER_LIST.map((w) => `<button class="chip ${w === s.weather ? 'sel' : ''}" data-oweather="${w}">${WICON[w]}<span>${WEATHERS[w].short}</span></button>`).join('')}</div>
               <button class="btn primary big" data-act="ostart" ${racing ? 'disabled' : ''}>${racing ? 'Rennen läuft …' : 'Rennen starten'}</button>
             ` : `
-              <dl class="kv"><dt>Modus</dt><dd>${(ONLINE_MODES.find((m) => m.id === s.mode) || {}).name}</dd><dt>Strecke</dt><dd>${esc(trackName)}</dd><dt>Wetter</dt><dd>${WEATHERS[s.weather] ? WEATHERS[s.weather].name : ''}</dd></dl>
+              <dl class="kv"><dt>Modus</dt><dd>${(ONLINE_MODES.find((m) => m.id === s.mode) || {}).name}</dd><dt>Karte</dt><dd>${esc(trackName)}</dd><dt>Wetter</dt><dd>${WEATHERS[s.weather] ? WEATHERS[s.weather].name : ''}</dd></dl>
               <p class="waiting">${racing ? 'Ein Rennen läuft gerade. Du bist beim nächsten dabei.' : 'Warte, bis der Host das Rennen startet …'}</p>
             `}
           </div>
@@ -377,6 +385,7 @@ export class UI {
         <div class="field"><span>Jacke</span><div class="swatches">${sw(COLORS, p.jacket, 'jacket')}</div></div>
         <div class="field"><span>Helm</span><div class="swatches">${sw(HELMETS, p.helmet, 'helmet')}</div></div>
         <div class="field"><span>Grafik</span><div class="seg">${['hoch', 'mittel', 'niedrig'].map((q) => `<button class="${q === p.quality ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
+        <div class="field"><span>Kamera</span><div class="seg"><button class="${!p.pov ? 'sel' : ''}" data-pov="0">Verfolger</button><button class="${p.pov ? 'sel' : ''}" data-pov="1">Ich-Perspektive</button></div></div>
         <div class="field"><span>Sound</span><div class="seg"><button class="${p.sound ? 'sel' : ''}" data-sound="1">An</button><button class="${!p.sound ? 'sel' : ''}" data-sound="0">Aus</button></div></div>
         <h4>Steuerung</h4>
         <table class="keys">
@@ -385,6 +394,7 @@ export class UI {
           <tr><td><kbd>↓</kbd> / <kbd>S</kbd></td><td>Bremsen · in der Luft: Backflip</td></tr>
           <tr><td><kbd>Leertaste</kbd></td><td>Springen (Ollie) · vom Rail abspringen</td></tr>
           <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Am Boden: Butter-360 links/rechts · in der Luft halten: Mute- / Tail-Grab</td></tr>
+          <tr><td><kbd>V</kbd></td><td>Kamera: Ich-Perspektive an/aus</td></tr>
           <tr><td><kbd>Shift</kbd></td><td>Boost – wird durch Tricks und saubere Schwünge aufgeladen</td></tr>
           <tr><td><kbd>Esc</kbd> · <kbd>R</kbd> · <kbd>M</kbd></td><td>Pause · Neustart · Ton an/aus</td></tr>
         </table>
@@ -396,6 +406,7 @@ export class UI {
       el.querySelectorAll('[data-jacket]').forEach((b) => (b.onclick = () => { p.jacket = b.dataset.jacket; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-helmet]').forEach((b) => (b.onclick = () => { p.helmet = b.dataset.helmet; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => { p.quality = b.dataset.q; app.store.save(); app.applyQuality(); this.settings(); }));
+      el.querySelectorAll('[data-pov]').forEach((b) => (b.onclick = () => { p.pov = b.dataset.pov === '1'; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-sound]').forEach((b) => (b.onclick = () => { p.sound = b.dataset.sound === '1'; app.store.save(); app.audio.setEnabled(p.sound); this.settings(); }));
     });
   }
@@ -407,9 +418,11 @@ export class UI {
         <h2>Pause</h2>
         <button class="btn primary big" data-act="resume" data-autofocus>Weiter <kbd>Esc</kbd></button>
         <button class="btn big" data-act="restart">Neustart <kbd>R</kbd></button>
+        <button class="btn big" data-act="cam">${this.app.store.profile.pov ? 'Verfolger-Kamera' : 'Ich-Perspektive'} <kbd>V</kbd></button>
         <button class="btn big ghost" data-act="menu">Zum Menü</button>
       </div>`, (el) => {
       el.querySelector('[data-act=resume]').onclick = () => this.app.resume();
+      el.querySelector('[data-act=cam]').onclick = () => this.app.togglePov();
       el.querySelector('[data-act=restart]').onclick = () => this.app.restart();
       el.querySelector('[data-act=menu]').onclick = () => this.app.toMenu();
     });
@@ -427,7 +440,7 @@ export class UI {
     else title = res.pb && res.prev != null ? (res.mode === 'freestyle' ? 'Neuer Highscore!' : 'Neue Bestzeit!') : 'Im Ziel';
     const medal = res.medal || 0;
     const goal = !res.online ? nextGoal(res.mode, res.trackId, medal) : null;
-    const prevLine = res.online ? '' : res.prev == null ? 'Erster Lauf auf dieser Strecke' : res.pb
+    const prevLine = res.online ? '' : res.prev == null ? 'Erster Lauf auf dieser Karte' : res.pb
       ? `Vorher: ${valueStr(res.mode, res.prev)} (${fmtDelta(res.mode === 'zeit' || res.mode === 'bots' || res.mode === 'slalom' ? res.value - res.prev : res.prev - res.value).replace('.', ',')})`
       : `Deine Bestmarke: ${valueStr(res.mode, res.prev)}`;
     const stats = [
@@ -456,7 +469,7 @@ export class UI {
       ? (net && net.isHost
         ? `<button class="btn primary big" data-act="rematch" ${net.phase === 'results' ? '' : 'disabled'}>Revanche</button><button class="btn big" data-act="lobby">Zur Lobby</button>`
         : `<button class="btn big" data-act="leave">Raum verlassen</button><span class="muted">Der Host startet die nächste Runde.</span>`)
-      : `<button class="btn primary big" data-act="again" data-autofocus>Nochmal <kbd>R</kbd></button><button class="btn big" data-act="setup">Strecke ändern</button><button class="btn big ghost" data-act="menu">Menü</button>`;
+      : `<button class="btn primary big" data-act="again" data-autofocus>Nochmal <kbd>R</kbd></button><button class="btn big" data-act="setup">Karte ändern</button><button class="btn big ghost" data-act="menu">Menü</button>`;
     const chHtml = res.newChallenges && res.newChallenges.length
       ? `<div class="res-ch">${res.newChallenges.map((c) => `<div><i>✓</i> Challenge geschafft: <b>${esc(c.text)}</b></div>`).join('')}</div>` : '';
 
@@ -535,11 +548,14 @@ export class Hud {
       <div class="hud-banner" id="h-banner"></div>
       ${mode === 'lawine' ? '<div class="vignette" id="h-vig"></div>' : ''}
       <button class="hud-pause" id="h-pause" aria-label="Pause">II</button>
+      <button class="hud-pause hud-cam" id="h-cam" aria-label="Kamera wechseln"></button>
     `;
     this.$ = (id) => this.el.querySelector('#' + id);
     this.marks = null;
     const pb = this.$('h-pause');
     if (pb) pb.onclick = () => sess.app.togglePause();
+    const cb = this.$('h-cam');
+    if (cb) { cb.onclick = () => sess.app.togglePov(); this.syncCam(); }
   }
 
   show() { this.el.classList.remove('hidden'); }
@@ -652,6 +668,16 @@ export class Hud {
   finish(text) {
     const c = this.$ && this.$('h-center');
     if (c) c.innerHTML = `<div class="count finish">${esc(text)}</div>`;
+  }
+
+  syncCam() {
+    const cb = this.$ && this.$('h-cam');
+    if (!cb) return;
+    const app = this.sess && this.sess.app;
+    if (!app) return;
+    const on = !!app.store.profile.pov;
+    cb.textContent = on ? '3P' : 'POV';
+    cb.title = on ? 'Verfolger-Kamera (V)' : 'Ich-Perspektive (V)';
   }
 
   banner(name, hint) {

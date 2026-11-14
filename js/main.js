@@ -115,6 +115,17 @@ app.restart = function () {
   this.startGame(this.lastCfg);
 };
 
+// Kamera: Ich-Perspektive (POV) an/aus
+app.togglePov = function () {
+  const p = this.store.profile;
+  p.pov = !p.pov;
+  this.store.save();
+  if (this.session) this.session.pov = p.pov;
+  this.ui.toast(p.pov ? 'Ich-Perspektive an' : 'Verfolger-Kamera');
+  if (this.ui.current === 'pause') this.ui.pause();
+  if (this.hud && this.hud.syncCam) this.hud.syncCam();
+};
+
 app.showResults = function (res) {
   showTouch(false);
   this.hud.hide();
@@ -203,6 +214,8 @@ addEventListener('keydown', (e) => {
   } else if (e.code === 'Enter') {
     if (app.ui.current === 'setup') { e.preventDefault(); app.ui.startFromSetup(); }
     else if (app.ui.current === 'results' && !(s && s.online)) { e.preventDefault(); app.restart(); }
+  } else if (e.code === 'KeyV' && !(app.ui.current === 'setup' || app.ui.current === 'settings')) {
+    app.togglePov();
   } else if (e.code === 'KeyM') {
     const p = app.store.profile;
     p.sound = !p.sound;

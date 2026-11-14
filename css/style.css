@@ -325,6 +325,8 @@ h4 { margin: 22px 0 10px; font: 700 13px/1 var(--body); letter-spacing: 0.12em; 
 @keyframes banner { 0% { opacity: 0; transform: translate(-50%, -8px); } 10% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
 .hud-pause { pointer-events: auto; position: absolute; top: 18px; right: 18px; width: 40px; height: 40px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(8, 14, 28, 0.5); font-weight: 900; letter-spacing: -1px; }
 
+.hud-cam { top: 66px; font-size: 11px; letter-spacing: 0; font-weight: 800; }
+
 /* ---------- Touch ---------- */
 .t-left, .t-right { position: absolute; bottom: calc(18px + var(--safe-b)); display: flex; gap: 10px; pointer-events: auto; }
 .t-left { left: 16px; }

@@ -23,7 +23,20 @@ Dann im Browser **http://localhost:5173** öffnen. Wegen der ES-Module funktioni
 | Lawinen-Flucht | Endlose Strecke, die Lawine wird immer schneller |
 | Online | Raum erstellen, Code oder Link teilen, bis zu 8 Spieler |
 
-Jede Strecke besteht aus Abschnitten mit eigenem Charakter: offene Hänge, Waldschneisen, Felsenfelder, Gabelungen (links Sprünge, rechts Buckel oder Felsen), Felsstufen, enge Rinnen, Buckelpisten, Sprunglinien, Grate, Almwiesen mit Hütten, gefrorene Seen mit Glatteis, Gletscherspalten (Brücke oder Sprung) und Bachquerungen.
+## Karten
+
+Fünf Karten (Edelweiß-Kar, Sonnenalm, Zirbenwald, Wolfsschlucht, Gletscherkante), jede ein breiter Hang mit mehreren Wegen nach unten. Immer wieder teilt sich die Piste durch Wald- und Felsinseln in zwei oder drei Wege, jeder mit eigenem Charakter:
+
+| Weg | Was dich erwartet |
+|---|---|
+| Carving-Piste | präpariert, Wellen, am schnellsten |
+| Kicker-Linie | zwei, drei Schanzen für Airtime und Tricks |
+| Buckelpiste | holprig, aber sicher |
+| Felsfeld | Felsen mit einer freien Linie dazwischen |
+| Waldschneise | Bäume, eine geschwungene Gasse führt durch |
+| Halfpipe-Rinne | Wände links und rechts zum Hochfahren |
+
+Dazu kommen freie Hänge (eigene Linie suchen), Felsterrassen (springen oder die Rampe am Rand), Gletscherspalten und Bäche (Brücke oder Sprung), gefrorene Seen und Almwiesen. Bots nehmen unterschiedliche Wege.
 
 Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Schneesturm mit Wind, Nebel), drei Tages-Challenges pro Tag und eine lokale Bestenliste.
 
@@ -37,6 +50,7 @@ Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Sch
 | Leertaste | Springen (Ollie), vom Rail abspringen | – |
 | Q / E | Butter-360 links / rechts | Halten: Mute- / Tail-Grab |
 | Shift | Boost (wird durch Tricks und saubere Schwünge aufgeladen) | – |
+| V | Kamera: Ich-Perspektive an/aus (auch per Knopf oben rechts) | |
 | Esc · R · M | Pause · Neustart · Ton | |
 
 Auf Handy und Tablet erscheinen Touch-Buttons.

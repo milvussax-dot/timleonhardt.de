@@ -3,23 +3,35 @@
 // Grate, Almwiesen, gefrorene Seen, Gletscherspalten mit Brücke und Bachquerungen.
 import { mulberry32, hashString, Noise1D, Noise2D, clamp, lerp, smoothstep } from './rng.js';
 
+// Karten: breite Hänge, die sich immer wieder in mehrere Wege teilen (lanes = mögliche Wegtypen der Karte)
 export const TRACKS = [
-  { id: 'edelweiss', name: 'Edelweiß-Abfahrt', diff: 'Leicht', tier: 0, length: 800, grade: 0.21, amp: 20, width: 34, rocks: 0.6,
-    recipe: ['open', 'jumps', 'creek', 'woods', 'fork', 'lake'] },
-  { id: 'zirbenwald', name: 'Zirbenwald', diff: 'Mittel', tier: 1, length: 1000, grade: 0.25, amp: 28, width: 30, rocks: 0.9,
-    recipe: ['woods', 'boulders', 'fork', 'moguls', 'creek', 'jumps', 'gully'] },
-  { id: 'wolfsschlucht', name: 'Wolfsschlucht', diff: 'Schwer', tier: 2, length: 1200, grade: 0.28, amp: 34, width: 27, rocks: 1.1,
-    recipe: ['gully', 'boulders', 'chasm', 'drops', 'fork', 'moguls', 'jumps'] },
-  { id: 'gletscherkante', name: 'Gletscherkante', diff: 'Extrem', tier: 3, length: 1400, grade: 0.31, amp: 40, width: 25, rocks: 1.3,
-    recipe: ['ridge', 'chasm', 'drops', 'lake', 'boulders', 'gully', 'fork', 'jumps'] },
+  { id: 'edelweiss', name: 'Edelweiß-Kar', diff: 'Leicht', tier: 0, length: 950, grade: 0.2, amp: 14, width: 62, rocks: 0.6,
+    lanes: ['kickers', 'moguls', 'glade'],
+    recipe: ['bowl', 'split2', 'creek', 'split3', 'lake', 'split2'] },
+  { id: 'sonnenalm', name: 'Sonnenalm', diff: 'Mittel', tier: 1, length: 1050, grade: 0.23, amp: 16, width: 60, rocks: 0.8,
+    lanes: ['kickers', 'pipe', 'moguls', 'glade'],
+    recipe: ['split3', 'meadow', 'split2', 'terraces', 'bowl', 'split3'] },
+  { id: 'zirbenwald', name: 'Zirbenwald', diff: 'Mittel', tier: 1, length: 1150, grade: 0.25, amp: 18, width: 56, rocks: 0.9,
+    lanes: ['glade', 'kickers', 'pipe', 'moguls'],
+    recipe: ['split3', 'bowl', 'split2', 'terraces', 'split3', 'creek', 'split2'] },
+  { id: 'wolfsschlucht', name: 'Wolfsschlucht', diff: 'Schwer', tier: 2, length: 1300, grade: 0.28, amp: 22, width: 54, rocks: 1.1,
+    lanes: ['boulders', 'pipe', 'kickers', 'glade', 'moguls'],
+    recipe: ['split2', 'chasm', 'split3', 'terraces', 'bowl', 'split3', 'gully', 'split2'] },
+  { id: 'gletscherkante', name: 'Gletscherkante', diff: 'Extrem', tier: 3, length: 1500, grade: 0.3, amp: 24, width: 50, rocks: 1.3,
+    lanes: ['boulders', 'pipe', 'kickers', 'moguls'],
+    recipe: ['ridge', 'split3', 'chasm', 'terraces', 'lake', 'split3', 'bowl', 'split2', 'chasm'] },
 ];
+
+export const LANE_LABEL = { carve: 'Carving-Piste', kickers: 'Kicker-Linie', moguls: 'Buckelpiste', boulders: 'Felsfeld', glade: 'Waldschneise', pipe: 'Halfpipe-Rinne' };
+const LANE_SIDES = { 2: ['Links', 'Rechts'], 3: ['Links', 'Mitte', 'Rechts'] };
 
 export const PARKS = [
   { id: 'kristall', name: 'Snowpark Kristall', diff: 'Leicht', tier: 0, length: 720, grade: 0.17, amp: 10, width: 54, big: false, park: true },
   { id: 'monster', name: 'Monster-Park', diff: 'Schwer', tier: 2, length: 950, grade: 0.21, amp: 14, width: 58, big: true, park: true },
 ];
 
-export const ENDLESS_DEF = { id: 'lawinenhang', name: 'Lawinenhang', diff: 'Endlos', tier: 2, length: 1000, grade: 0.27, amp: 30, width: 32, rocks: 0.9 };
+export const ENDLESS_DEF = { id: 'lawinenhang', name: 'Lawinenhang', diff: 'Endlos', tier: 2, length: 1000, grade: 0.27, amp: 22, width: 52, rocks: 0.9,
+  lanes: ['kickers', 'moguls', 'boulders', 'glade', 'pipe'] };
 
 export function findDef(id) {
   return TRACKS.find((t) => t.id === id) || PARKS.find((t) => t.id === id) || (id === ENDLESS_DEF.id ? ENDLESS_DEF : TRACKS[0]);
@@ -47,11 +59,16 @@ export const SECTION_TYPES = {
   chasm: { len: 110, w: 1.2, amp: 0.2, slope: 0, wall: 1.3, forest: 0.4, names: ['Gletscherspalte', 'Steinbrücke', 'Wolfsspalte'], hint: 'Über die Brücke – oder drüberspringen!' },
   creek: { len: 80, w: 1.15, amp: 0.35, slope: 0, wall: 0.9, forest: 0.9, names: ['Bachquerung', 'Eisbach'], hint: 'Bach: Springen spart Tempo' },
   park: { len: 230, w: 1, amp: 1, slope: 0, wall: 0.8, forest: 0.6, names: ['Kicker-Linie', 'Jib-Garten', 'Big-Air-Zone', 'Rail-Allee'], hint: '' },
+  // breite Karten-Abschnitte
+  bowl: { len: 170, w: 1.3, amp: 0.7, slope: 0, wall: 0.5, forest: 0.35, names: ['Sonnenkar', 'Firnfeld', 'Weiße Mulde', 'Panoramahang', 'Wolkenbank'], hint: 'Freier Hang – such dir deine eigene Linie' },
+  split2: { len: 200, w: 1.15, amp: 0.4, slope: 0.01, wall: 0.85, forest: 0.8, lanes: 2, names: ['Gabelung', 'Felsinsel', 'Zwei Wege', 'Teufelsinsel'], hint: '' },
+  split3: { len: 220, w: 1.4, amp: 0.35, slope: 0.01, wall: 0.85, forest: 0.8, lanes: 3, names: ['Drei Rinnen', 'Kreuzweg', 'Fächerhang', 'Dreierkar'], hint: '' },
+  terraces: { len: 160, w: 1.2, amp: 0.3, slope: 0.03, wall: 1.1, forest: 0.4, names: ['Felsterrassen', 'Kanzelstufen', 'Steinbalkone'], hint: '' },
 };
-const SLALOM_MAP = { chasm: 'open', creek: 'meadow', fork: 'open', jumps: 'open', drops: 'woods', boulders: 'open', ridge: 'gully' };
+const SLALOM_MAP = { chasm: 'open', creek: 'meadow', fork: 'open', jumps: 'open', drops: 'woods', boulders: 'open', ridge: 'gully', bowl: 'open', split2: 'open', split3: 'woods', terraces: 'open' };
 const ENDLESS_POOL = [
-  ['open', 0], ['woods', 0], ['jumps', 0], ['meadow', 0], ['boulders', 400], ['fork', 500], ['moguls', 600], ['creek', 700],
-  ['gully', 1200], ['drops', 1400], ['lake', 1600], ['chasm', 1900], ['ridge', 2400],
+  ['bowl', 0], ['split2', 0], ['split2', 0], ['meadow', 0], ['split3', 300], ['split3', 300], ['creek', 500], ['terraces', 800],
+  ['gully', 1200], ['lake', 1500], ['chasm', 1800], ['ridge', 2400],
 ];
 
 function featureHeight(f, s, d) {
@@ -82,12 +99,30 @@ function featureHeight(f, s, d) {
       const t = (s - f.s) / f.len;
       if (t <= 0 || t >= 1) return 0;
       const sn = Math.sin(Math.PI * t);
-      return f.h * sn * sn * (1 - smoothstep(f.ext - 8, f.ext, Math.abs(d)));
+      let lat = 1 - smoothstep(f.ext - 8, f.ext, Math.abs(d));
+      if (f.dMin != null) lat *= smoothstep(f.dMin - 1.5, f.dMin + 1.5, d) * (1 - smoothstep(f.dMax - 1.5, f.dMax + 1.5, d));
+      return f.h * sn * sn * lat;
     }
     case 'island': {
       if (s < f.s1 || s > f.s2) return 0;
       const env = smoothstep(f.s1, f.s1 + 12, s) * (1 - smoothstep(f.s2 - 12, f.s2, s));
-      return f.h * env * (1 - smoothstep(f.half - 3, f.half + 0.5, Math.abs(d)));
+      return f.h * env * (1 - smoothstep(f.half - 3, f.half + 0.5, Math.abs(d - (f.c || 0))));
+    }
+    case 'pipe': {
+      // Halfpipe-Rinne: Wände an den Rändern einer Spur
+      if (s < f.s1 || s > f.s2) return 0;
+      const t = Math.abs(d - f.c) / f.half;
+      if (t < 0.4 || t > 1.8) return 0;
+      const env = smoothstep(f.s1, f.s1 + 14, s) * (1 - smoothstep(f.s2 - 14, f.s2, s));
+      const q = smoothstep(0.4, 1.15, t);
+      return f.h * q * q * env * (1 - smoothstep(1.25, 1.8, t));
+    }
+    case 'ramp': {
+      // Umfahrung einer Felsstufe: hier geht es sanft hinunter statt über die Kante
+      if (s < f.s - f.R || s > f.s + f.w) return 0;
+      const lat = 1 - smoothstep(f.half - 2.5, f.half + 1, Math.abs(d - f.c));
+      if (lat <= 0) return 0;
+      return f.h * (smoothstep(f.s, f.s + f.w, s) - smoothstep(f.s - f.R, f.s, s)) * lat;
     }
     default: return 0;
   }
@@ -101,6 +136,9 @@ export class Course {
     const rng = mulberry32(this.seed);
     this.endless = mode === 'endless';
     this.length = this.endless ? Infinity : def.length;
+    // Slalom bleibt schmal, sonst sind die Karten breit; die Querwölbung wird bei breiten Karten flacher
+    this.wMul = mode === 'slalom' && def.width > 40 ? 0.5 : 1;
+    this.bowlK = 0.0022 * Math.min(1, Math.pow(32 / (def.width * this.wMul), 2));
     this.S0 = -100;
     this.nCx = new Noise1D(rng); this.nCx2 = new Noise1D(rng); this.nW = new Noise1D(rng);
     this.nSl = new Noise1D(rng); this.nLn = new Noise1D(rng); this.nLn2 = new Noise1D(rng);
@@ -144,14 +182,62 @@ export class Course {
       sec.p.ov = 1;
       sec.p.ovD = sec.bridgeSide * this.def.width * T.w * 0.5 * 0.42;
     }
+    if (T.lanes && raceLike) this._makeLanes(sec, T, r);
     // Steilstufe: plötzlich steiler – an der Kante hebt man bei Tempo ab
-    if (this.mode !== 'freestyle' && ['open', 'gully', 'ridge', 'woods', 'boulders', 'meadow'].includes(type) && r() < 0.7 && s2 - s1 > 110) {
+    if (this.mode !== 'freestyle' && ['open', 'bowl', 'gully', 'ridge', 'woods', 'boulders', 'meadow'].includes(type) && r() < 0.7 && s2 - s1 > 110) {
       const len = 30 + r() * 18;
       this.breaks.push({ s: s1 + (s2 - s1) * (0.3 + r() * 0.3), len, add: 0.16 + r() * 0.14 });
     }
     this.secs.push(sec);
     this.secEnd = s2;
     return sec;
+  }
+
+  // Abschnitt in 2–3 parallele Wege teilen, getrennt durch Wald-/Felsinseln. Ein Weg ist immer die Carving-Piste.
+  _makeLanes(sec, T, r) {
+    const n = T.lanes;
+    const W = this.def.width * this.wMul * T.w * 0.94;
+    const isl = n === 3 ? 4 + r() * 1.6 : 4.5 + r() * 2.5;
+    const laneW = (W - 2 * isl * (n - 1)) / n;
+    const pool = (this.def.lanes || ['kickers', 'moguls', 'boulders', 'glade', 'pipe']).filter((t) => t !== 'carve');
+    const types = ['carve'];
+    // Abwechslung: zuerst Wegtypen nehmen, die im letzten geteilten Abschnitt nicht vorkamen
+    const last = this._lastLanes || [];
+    const fresh = pool.filter((t) => !last.includes(t));
+    for (const src of [fresh, pool]) {
+      let guard = 0;
+      while (types.length < n && guard++ < 40 && src.length) {
+        const t = src[Math.floor(r() * src.length)];
+        if (!types.includes(t)) types.push(t);
+      }
+    }
+    while (types.length < n) types.push('carve');
+    for (let i = types.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [types[i], types[j]] = [types[j], types[i]]; }
+    // die Carving-Piste nicht zweimal hintereinander auf derselben Seite
+    if (this._lastCarve != null && types.indexOf('carve') === this._lastCarve && n > 1) {
+      const ci = types.indexOf('carve'), j = (ci + 1 + Math.floor(r() * (n - 1))) % n;
+      [types[ci], types[j]] = [types[j], types[ci]];
+    }
+    this._lastLanes = types.slice();
+    this._lastCarve = types.indexOf('carve');
+    sec.lanes = []; sec.islands = [];
+    let x = -W / 2;
+    for (let i = 0; i < n; i++) {
+      sec.lanes.push({ type: types[i], c: x + laneW / 2, half: laneW / 2, idx: i });
+      x += laneW;
+      if (i < n - 1) { sec.islands.push({ c: x + isl, half: isl }); x += 2 * isl; }
+    }
+    const ideal = sec.lanes.find((l) => l.type === 'carve');
+    sec.p.ov = 1;
+    sec.p.ovD = ideal.c;
+    sec.hint = sec.lanes.map((l, i) => `${LANE_SIDES[n][i]}: ${LANE_LABEL[l.type]}`).join(' · ');
+  }
+
+  // Abschnitt mit Wegwahl in der Nähe von s (für Bots)
+  laneSecAt(s) {
+    const sec = this.secAt(s);
+    if (!sec.lanes || !sec.span) return null;
+    return s > sec.span.s1 - 45 && s < sec.span.s2 + 4 ? sec : null;
   }
 
   _buildFiniteSections() {
@@ -212,7 +298,7 @@ export class Course {
     let g = fade * amp * def.amp * (this.nCx.at(s / 150) / 95 + (0.35 * this.nCx2.at(s / 60)) / 38);
     if (!this.endless && s > L + 30) g = 0;
     const cx = i === 0 ? 0 : this.cxA[i - 1] + clamp(g, -1.1, 1.1);
-    let w = def.width * this._param(s, 'w') * (1 + 0.12 * this.nW.at(s / 230 + 3.3));
+    let w = def.width * this.wMul * this._param(s, 'w') * (1 + 0.12 * this.nW.at(s / 230 + 3.3));
     if (this.endless) w *= clamp(1.05 - s / 9000, 0.75, 1.05);
     let br = 0;
     for (let bi = this.breaks.length - 1; bi >= 0; bi--) {
@@ -298,7 +384,7 @@ export class Course {
     const base = this.hAt(s), c = this.cxAt(s), hw = this.wAt(s) * 0.5;
     const ice = this.iceAt(s), wall = this.wallAt(s);
     const d = x - c, ad = Math.abs(d);
-    let y = base + 0.0022 * d * d * (1 - 0.85 * ice);
+    let y = base + this.bowlK * d * d * (1 - 0.85 * ice);
     if (ad > hw) {
       const e = ad - hw;
       const lump = Math.min(1, e / 10) * 0.9 * this.n2.at(x * 0.12, s * 0.12);
@@ -394,7 +480,7 @@ export class Course {
     const r = mulberry32((this.seed ^ Math.imul(sec.idx + 3, 0x27d4eb2d)) >>> 0);
     const s1 = sec.s1, s2 = sec.s2, len = s2 - s1;
     // Wellen / Kuppen quer über die Piste
-    const ROLLS = { open: 2, meadow: 2, woods: 1, gully: 1, ridge: 1, fork: 1, boulders: 1 };
+    const ROLLS = { open: 2, bowl: 2, meadow: 2, woods: 1, gully: 1, ridge: 1, fork: 1, boulders: 1 };
     if (this.mode !== 'freestyle' && ROLLS[sec.type]) {
       for (let j = 0; j < ROLLS[sec.type]; j++) {
         const s = s1 + len * ((j + 0.5) / (ROLLS[sec.type] + 0.4)) + (r() - 0.5) * 12;
@@ -406,7 +492,7 @@ export class Course {
       }
     }
     // kleine Felskanten
-    if (raceLike && ['open', 'woods', 'boulders', 'meadow'].includes(sec.type) && r() < 0.6) {
+    if (raceLike && ['open', 'bowl', 'woods', 'boulders', 'meadow'].includes(sec.type) && r() < 0.6) {
       const s = s1 + len * (0.55 + r() * 0.3);
       if (this._clearAt(s, 30)) {
         const f = { type: 'drop', s, w: 1.3, h: 0.9 + r() * 0.6, s1: s - 4, s2: s + 25, small: true };
@@ -429,6 +515,65 @@ export class Course {
       case 'open':
         if (r() < 0.6) { const s = s1 + len * (0.4 + r() * 0.3); kick(s, lineD(s), r() < 0.5); }
         break;
+      case 'bowl': {
+        // freier Hang: Kicker irgendwo quer verteilt, nicht auf einer Linie
+        const hw = this.wAt(s1 + len / 2) / 2;
+        for (let j = 0; j < 2; j++) {
+          const s = s1 + len * (0.3 + j * 0.38) + (r() - 0.5) * 10;
+          if (!this._clearAt(s, 20)) continue;
+          kick(s, (r() * 2 - 1) * hw * 0.6, r() < 0.5);
+        }
+        break;
+      }
+      case 'split2':
+      case 'split3': {
+        if (!sec.lanes) break;
+        const a = s1 + 26, b = s2 - 24;
+        sec.span = { s1: a, s2: b };
+        for (const isl of sec.islands) {
+          const f = { type: 'island', s1: a, s2: b, s: (a + b) / 2, c: isl.c, half: isl.half, h: 3.2 + r() * 0.8 };
+          this._addFeature(f, a, b);
+        }
+        for (const ln of sec.lanes) {
+          const dMin = ln.c - ln.half, dMax = ln.c + ln.half;
+          if (ln.type === 'kickers') {
+            const m = b - a > 150 ? 3 : 2;
+            for (let j = 0; j < m; j++) kick(a + (b - a) * ((j + 0.6) / (m + 0.3)), ln.c, j === m - 1 || r() < 0.3);
+          } else if (ln.type === 'moguls') {
+            this._addFeature({ type: 'moguls', s1: a, s2: b, s: (a + b) / 2, a: 0.42 + r() * 0.1, dMin, dMax }, a, b);
+          } else if (ln.type === 'carve') {
+            for (let j = 0; j < 2; j++) {
+              const s = a + (b - a) * (0.22 + j * 0.42);
+              const f = { type: 'roll', s, len: 13 + r() * 6, h: 0.9 + r() * 0.6, ext: 1e9, dMin, dMax };
+              f.s1 = s - 4; f.s2 = s + f.len + 10;
+              this._addFeature(f, s, s + f.len);
+            }
+          } else if (ln.type === 'pipe') {
+            this._addFeature({ type: 'pipe', s1: a, s2: b, s: (a + b) / 2, c: ln.c, half: ln.half, h: 2.2 + r() * 0.8 }, a, b);
+          }
+        }
+        break;
+      }
+      case 'terraces': {
+        // Felsstufen über die ganze Breite – an einem Rand führt eine Rampe drumherum
+        const n = len > 150 ? 3 : 2;
+        const side = r() < 0.5 ? -1 : 1;
+        const W = this.def.width * this.wMul * SECTION_TYPES.terraces.w * 0.94;
+        const rampHalf = 6.5, rc = side * (W / 2 - rampHalf - 1);
+        for (let j = 0; j < n; j++) {
+          const s = s1 + len * ((j + 0.55) / n);
+          const h = 1.8 + r() * 1.2;
+          const f = { type: 'drop', s, h, s1: s - 4, s2: s + 30 };
+          this.drops.push(f);
+          this._addFeature(f, s - 4, s + 4);
+          const rp = { type: 'ramp', s, w: 2, h, R: 24, c: rc, half: rampHalf, s1: s - 25, s2: s + 3 };
+          this._addFeature(rp, s - 25, s + 3);
+          this.signs.push({ s: s - 38, side: -side, kind: 'drop' });
+        }
+        sec.rampD = rc;
+        sec.hint = `Über die Felsstufen springen – oder ${side < 0 ? 'links' : 'rechts'} die Rampe nehmen`;
+        break;
+      }
       case 'drops': {
         const n = len > 170 ? 3 : 2;
         for (let j = 0; j < n; j++) {
@@ -638,6 +783,54 @@ export class Course {
           case 'open':
             for (let j = n(0.5); j > 0; j--) tryPlace(a, b, 6.5, (s, x) => rock(s, x, 0.7 + rng() * 0.9));
             break;
+          case 'bowl':
+            // vereinzelte Baum- und Felsgruppen auf dem freien Hang
+            for (let j = n(2.4); j > 0; j--) {
+              tryPlace(a, b, 7, (s, x) => {
+                if (rng() < 0.55) { const cnt = 2 + Math.floor(rng() * 3); for (let q = 0; q < cnt; q++) tree(s + (rng() - 0.5) * 4, x + (rng() - 0.5) * 4, 0.8 + rng() * 0.5); }
+                else rock(s, x, 0.8 + rng() * 1.1);
+              });
+            }
+            break;
+          case 'split2':
+          case 'split3': {
+            const sp = sec.span;
+            if (!sp) break;
+            const A = Math.max(a, sp.s1), B = Math.min(b, sp.s2);
+            if (B <= A) break;
+            // Inseln zwischen den Wegen: Felsen am Rand, Bäume obendrauf
+            for (const isl of sec.islands) {
+              for (let s = A + rng() * 2; s < B; s += 4.2) {
+                if (s < sp.s1 + 7 || s > sp.s2 - 7) continue;
+                const c = this.cxAt(s) + isl.c;
+                for (const sd of [-1, 1]) if (rng() < 0.7) rock(s + rng() * 2, c + sd * (isl.half - 1.6 - rng()), 1.0 + rng() * 0.9);
+                const nt = 1 + Math.floor(rng() * 2.5);
+                for (let q = 0; q < nt; q++) tree(s + rng() * 3, c + (rng() - 0.5) * 2 * Math.max(0.5, isl.half - 2.6), 1.0 + rng() * 0.7);
+              }
+            }
+            // Felsfeld- und Waldschneisen-Wege: Hindernisse, aber immer mit einer freien, geschwungenen Linie
+            for (const ln of sec.lanes) {
+              if (ln.type !== 'boulders' && ln.type !== 'glade') continue;
+              const glade = ln.type === 'glade';
+              const cnt = Math.round(((B - A) / 100) * (glade ? 6 : 9) * (0.8 + rng() * 0.4) * (def.rocks || 1) * (ln.half / 10));
+              for (let j = 0; j < cnt; j++) {
+                for (let tries = 0; tries < 6; tries++) {
+                  const s = A + rng() * (B - A);
+                  if (s < sp.s1 + 10 || s > sp.s2 - 6) continue;
+                  const free = ln.c + Math.sin(s * 0.045 + ln.idx * 2.1) * ln.half * 0.4;
+                  const dd = ln.c + (rng() * 2 - 1) * (ln.half - 1);
+                  if (Math.abs(dd - free) < (glade ? 4.6 : 3.4)) continue;
+                  const x = this.cxAt(s) + dd;
+                  if (glade) {
+                    const cntT = 1 + Math.floor(rng() * 3);
+                    for (let q = 0; q < cntT; q++) tree(s + (rng() - 0.5) * 2.5, x + (rng() - 0.5) * 2.5, 0.8 + rng() * 0.5);
+                  } else rock(s, x, 0.6 + Math.pow(rng(), 1.5) * 1.5);
+                  break;
+                }
+              }
+            }
+            break;
+          }
           case 'gully':
             for (let j = n(1.2); j > 0; j--) tryPlace(a, b, 5, (s, x) => rock(s, x, 0.6 + rng() * 0.6));
             break;

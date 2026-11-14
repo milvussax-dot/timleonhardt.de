@@ -377,8 +377,9 @@ function makeRockGeo() {
 }
 
 function buildColumns(course) {
-  const maxHW = course.def.width * 1.05 + 8;
-  const step = 1.25;
+  const wide = course.def.width * (course.wMul || 1);
+  const maxHW = Math.max(wide * 1.05, wide * 0.5 * 1.4 * 1.14) + 8;
+  const step = wide > 45 ? 1.5 : 1.25;
   const n = Math.ceil(maxHW / step);
   const D = [];
   for (let i = -n; i <= n; i++) D.push(i * step);
@@ -510,6 +511,8 @@ export class World {
     const kickers = feats.filter((f) => f.type === 'kicker');
     const drops = feats.filter((f) => f.type === 'drop');
     const gapsHere = feats.filter((f) => f.type === 'gap');
+    const islands = feats.filter((f) => f.type === 'island' && f.c != null);
+    const ramps = feats.filter((f) => f.type === 'ramp');
     const gr = [0, 0];
     let vi = 0;
     for (let r = 0; r < rows; r++) {
@@ -532,6 +535,13 @@ export class World {
           if (e > 25) tmp.lerp(COL.offFar, Math.min(1, (e - 25) / 40));
         }
         if (Math.abs(ad - hw) < 0.7) tmp.lerp(COL.edge, 0.35);
+        // Inseln zwischen den Wegen: unpräparierter Schnee mit Kante
+        for (const f of islands) {
+          if (s < f.s1 + 4 || s > f.s2 - 4) continue;
+          const di = Math.abs(d - f.c);
+          if (di < f.half + 0.6) tmp.lerp(COL.off, di < f.half - 1.2 ? 0.75 : 0.4);
+          if (Math.abs(di - f.half) < 0.6) tmp.lerp(COL.edge, 0.4);
+        }
         if (ad > hw + 2) {
           const steep = Math.hypot(gr[0], gr[1]);
           const rn = c.n2.at(x * 0.07 + 11, s * 0.07);
@@ -544,7 +554,11 @@ export class World {
             if (t < 0.9) tmp.copy(COL.lip); else tmp.lerp(COL.kick, 0.6);
           }
         }
-        for (const f of drops) if (s >= f.s - 0.5 && s <= f.s + (f.w || 2) + 0.5) tmp.lerp(COL.rockA, ad > hw ? 0.85 : f.small ? 0.25 : 0.4);
+        for (const f of drops) {
+          if (s < f.s - 0.5 || s > f.s + (f.w || 2) + 0.5) continue;
+          if (ramps.some((rp) => rp.s === f.s && Math.abs(d - rp.c) < rp.half - 1)) continue;
+          tmp.lerp(COL.rockA, ad > hw ? 0.85 : f.small ? 0.25 : 0.4);
+        }
         const ice = c.iceAt(s);
         if (ice > 0.02 && ad < hw + 6) {
           const cr = Math.abs(c.n2.at(x * 0.18 + 3, s * 0.18));

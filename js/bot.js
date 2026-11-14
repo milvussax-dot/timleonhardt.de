@@ -32,6 +32,13 @@ export class BotBrain {
     this.inp = { steer: 0, tuck: false, brake: false, jump: false, flip: 0, spin: 0, grab: 0, trickL: false, trickR: false, boost: false };
   }
 
+  lanePick(sec) {
+    if (sec._pick == null) sec._pick = new Map();
+    let i = sec._pick.get(this);
+    if (i == null) { i = Math.floor(this.rng() * sec.lanes.length); sec._pick.set(this, i); }
+    return i;
+  }
+
   vTerm(s) {
     const sl = this.course.slopeAt(s);
     return Math.sqrt(Math.max(1, G * (sl - 0.035)) / 0.0024);
@@ -55,8 +62,13 @@ export class BotBrain {
       if (g && g.s - s < look + 12) { tx = g.x; look = Math.max(3, g.s - s); }
     }
     if (tx === undefined && this.p.name) {
-      const fk = c.forkAt(s + look);
-      if (fk) tx = c.cxAt(s + look) + this.forkSide * (fk.half + 5.5);
+      // Wegwahl: jeder Bot nimmt pro Abschnitt seinen eigenen Weg
+      const ls = c.laneSecAt(s + look);
+      if (ls) tx = c.cxAt(s + look) + ls.lanes[this.lanePick(ls)].c + this.p.wobble * 1.5 * this.noise.at(s / 30);
+      else {
+        const fk = c.forkAt(s + look);
+        if (fk) tx = c.cxAt(s + look) + this.forkSide * (fk.half + 5.5);
+      }
     }
     if (tx === undefined) tx = c.lineAt(s + look) + this.p.wobble * 2.0 * this.noise.at(s / 35);
     // Hindernissen auf dem Weg ausweichen
