@@ -384,7 +384,9 @@ export class UI {
         <label class="field"><span>Name</span><input id="st-name" maxlength="16" value="${esc(p.name || '')}" placeholder="Dein Fahrername" autocomplete="off"></label>
         <div class="field"><span>Jacke</span><div class="swatches">${sw(COLORS, p.jacket, 'jacket')}</div></div>
         <div class="field"><span>Helm</span><div class="swatches">${sw(HELMETS, p.helmet, 'helmet')}</div></div>
-        <div class="field"><span>Grafik</span><div class="seg">${['hoch', 'mittel', 'niedrig'].map((q) => `<button class="${q === p.quality ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
+        <div class="field"><span>Grafik</span><div class="seg">${['auto', 'hoch', 'mittel', 'niedrig'].map((q) => `<button class="${q === (p.quality || 'auto') ? 'sel' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
+        ${app.isTouch ? `<div class="field"><span>Lenkung</span><div class="seg">${[['wischen', 'Wischen'], ['neigen', 'Neigen'], ['tasten', 'Tasten']].map(([k, n]) => `<button class="${k === app.steerMode() ? 'sel' : ''}" data-steer="${k}">${n}</button>`).join('')}</div></div>` : ''}
+        ${app.isTouch && document.fullscreenEnabled ? `<div class="field"><span>Vollbild im Spiel</span><div class="seg"><button class="${p.fullscreen !== false ? 'sel' : ''}" data-fs="1">An</button><button class="${p.fullscreen === false ? 'sel' : ''}" data-fs="0">Aus</button></div></div>` : ''}
         <div class="field"><span>Kamera</span><div class="seg"><button class="${!p.pov ? 'sel' : ''}" data-pov="0">Verfolger</button><button class="${p.pov ? 'sel' : ''}" data-pov="1">Ich-Perspektive</button></div></div>
         <div class="field"><span>Sound</span><div class="seg"><button class="${p.sound ? 'sel' : ''}" data-sound="1">An</button><button class="${!p.sound ? 'sel' : ''}" data-sound="0">Aus</button></div></div>
         <h4>Steuerung</h4>
@@ -405,7 +407,12 @@ export class UI {
       nameEl.addEventListener('input', () => { p.name = nameEl.value.trim().slice(0, 16); app.store.save(); });
       el.querySelectorAll('[data-jacket]').forEach((b) => (b.onclick = () => { p.jacket = b.dataset.jacket; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-helmet]').forEach((b) => (b.onclick = () => { p.helmet = b.dataset.helmet; app.store.save(); this.settings(); }));
-      el.querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => { p.quality = b.dataset.q; app.store.save(); app.applyQuality(); this.settings(); }));
+      el.querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => { p.quality = b.dataset.q; p.qualityChosen = true; app.resScale = 1; app.store.save(); app.applyQuality(); this.settings(); }));
+      el.querySelectorAll('[data-steer]').forEach((b) => (b.onclick = async () => {
+        if (b.dataset.steer === 'neigen' && !(await app.requestTilt())) { this.toast('Neigen wurde nicht erlaubt', 'bad'); return; }
+        p.steer = b.dataset.steer; app.store.save(); app.applySteerMode(); this.settings();
+      }));
+      el.querySelectorAll('[data-fs]').forEach((b) => (b.onclick = () => { p.fullscreen = b.dataset.fs === '1'; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-pov]').forEach((b) => (b.onclick = () => { p.pov = b.dataset.pov === '1'; app.store.save(); this.settings(); }));
       el.querySelectorAll('[data-sound]').forEach((b) => (b.onclick = () => { p.sound = b.dataset.sound === '1'; app.store.save(); app.audio.setEnabled(p.sound); this.settings(); }));
     });

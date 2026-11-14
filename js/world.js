@@ -376,10 +376,11 @@ function makeRockGeo() {
   return g;
 }
 
-function buildColumns(course) {
+function buildColumns(course, quality) {
   const wide = course.def.width * (course.wMul || 1);
   const maxHW = Math.max(wide * 1.05, wide * 0.5 * 1.4 * 1.14) + 8;
-  const step = wide > 45 ? 1.5 : 1.25;
+  let step = wide > 45 ? 1.5 : 1.25;
+  if (quality === 'niedrig') step = 2; else if (quality === 'mittel' && wide > 45) step = 1.75;
   const n = Math.ceil(maxHW / step);
   const D = [];
   for (let i = -n; i <= n; i++) D.push(i * step);
@@ -400,7 +401,8 @@ export class World {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.chunks = new Map();
-    this.D = buildColumns(course);
+    this.D = buildColumns(course, opts.quality);
+    this.viewAhead = opts.quality === 'niedrig' ? 480 : 700;
     this.shadows = opts.quality !== 'niedrig';
     this.night = !!opts.night;
     this.pickupObjs = [];
@@ -457,7 +459,7 @@ export class World {
   }
 
   update(s, t) {
-    const k0 = Math.floor((s - 140) / CHUNK), k1 = Math.floor((s + 700) / CHUNK);
+    const k0 = Math.floor((s - 140) / CHUNK), k1 = Math.floor((s + this.viewAhead) / CHUNK);
     let built = 0;
     for (let k = k0; k <= k1 && built < 1; k++) if (this._ensureChunk(k)) built++;
     for (const [k, ch] of this.chunks) {

@@ -53,6 +53,8 @@ export class Session {
     this.scene = new THREE.Scene();
     this.env = new Environment(this.scene, cfg.weather, app.quality, app.renderer);
     this.world = new World(this.scene, this.course, { night: !!this.env.def.night, quality: app.quality });
+    // schwache Geräte: kürzere Sichtweite, dafür flüssig
+    if (app.quality === 'niedrig' && this.scene.fog) { this.scene.fog.far = Math.min(this.scene.fog.far, 470); this.scene.fog.near = Math.min(this.scene.fog.near, 160); }
     this.fx = new FX(this.scene, this.course);
     this.camera = app.camera;
     this.attract = !!cfg.attract;
@@ -226,6 +228,7 @@ export class Session {
             app.audio.land(ev.impact);
             if (ev.air > 0.45) this.fx.burst(st.x, st.y, st.z, Math.min(40, 10 + ev.air * 12), 4);
             if (ev.impact > 12) this.cs.shake = Math.min(1, ev.impact / 30);
+            if (ev.impact > 16 && app.isTouch && navigator.vibrate) navigator.vibrate(25);
             this.scoreTrick(ev);
           }
           break;
@@ -234,6 +237,7 @@ export class Session {
           S.combo = 0;
           if (!this.online && ev.reason !== 'avalanche') this.slowmo = 0.55;
           app.audio.crash();
+          if (app.isTouch && navigator.vibrate) navigator.vibrate([50, 40, 70]);
           this.fx.burst(st.x, st.y + 0.5, st.z, 50, 6);
           this.cs.shake = 1;
           app.hud.popup(CRASH_TEXT[ev.reason] || 'Sturz!', 'bad');
@@ -615,7 +619,9 @@ export class Session {
     if (Math.abs(cs.roll) > 0.0005) cam.rotateZ(cs.roll * (pov ? 1.5 : 1));
     // Sichtfeld: Tempo, Boost und Schub aus dem Kantenwechsel
     cs.kick = Math.max(0, (cs.kick || 0) - dt * 2.2);
-    const fov = (pov ? 74 : 66) + clamp(sp - 8, 0, 34) * (pov ? 0.5 : 0.62) + (st.boosting || st.boost > 0 ? 6 : 0) + cs.kick * 4;
+    let fov = (pov ? 74 : 66) + clamp(sp - 8, 0, 34) * (pov ? 0.5 : 0.62) + (st.boosting || st.boost > 0 ? 6 : 0) + cs.kick * 4;
+    // Hochformat (Handy): Sichtfeld aufweiten, sonst sieht man links und rechts kaum etwas
+    if (cam.aspect < 1) fov = Math.min(100, fov * (1 + (1 - cam.aspect) * 0.55));
     if (Math.abs(cam.fov - fov) > 0.05) {
       cam.fov = lerp(cam.fov, fov, Math.min(1, dt * 4));
       cam.updateProjectionMatrix();

@@ -3,7 +3,7 @@ const KEY = 'gipfelrausch.v1';
 const GHOST_PREFIX = 'gipfelrausch.ghost2.';
 
 const defaults = () => ({
-  profile: { name: '', jacket: '#ff5a36', helmet: '#f5f7fa', sound: true, quality: 'hoch', seenHelp: false, pov: false },
+  profile: { name: '', jacket: '#ff5a36', helmet: '#f5f7fa', sound: true, quality: 'auto', seenHelp: false, pov: false },
   best: {},
   boards: {},
   medals: {},

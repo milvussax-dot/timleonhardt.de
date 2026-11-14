@@ -40,6 +40,14 @@ Dazu kommen freie Hänge (eigene Linie suchen), Felsterrassen (springen oder die
 
 Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Schneesturm mit Wind, Nebel), drei Tages-Challenges pro Tag und eine lokale Bestenliste.
 
+## Auf dem Handy
+
+- **Lenken:** links auf dem Bildschirm wischen (stufenlos). In den Einstellungen gibt es auch *Neigen* (Handy wie ein Lenkrad kippen) oder *Tasten*.
+- **Rechts im Daumenbogen:** Sprung, Hocke (in der Luft Frontflip), Bremse (Backflip), Boost und zwei Trick-/Grab-Tasten.
+- Grafik steht auf *Auto*: auf Handys ohne Schatten und Kantenglättung, die Auflösung regelt sich nach der Bildrate.
+- Im Hochformat wird das Sichtfeld breiter; quer gehalten sieht man am meisten.
+- Über *Zum Home-Bildschirm* läuft das Spiel als App im Vollbild. Wechselt man die App, pausiert das Spiel.
+
 ## Steuerung
 
 | Taste | Am Boden | In der Luft |

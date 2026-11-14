@@ -14,6 +14,8 @@ export class Input {
     this.locked = new Set();
     this.edges = new Set();
     this.enabled = true;
+    this.analog = 0; // Touch-Lenkung (Wischen/Neigen), -1..1
+    this.padLock = false;
     this.inp = { steer: 0, tuck: false, brake: false, jump: false, flip: 0, spin: 0, grab: 0, trickL: false, trickR: false, boost: false };
     addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName) || '';
@@ -42,12 +44,19 @@ export class Input {
     return false;
   }
   clearEdges() { this.edges.clear(); }
-  lockAll() { for (const c of this.down) this.locked.add(c); }
+  lockAll() {
+    for (const c of this.down) this.locked.add(c);
+    // wer beim Absprung gerade lenkt, dreht in der Luft erst nach kurzem Loslassen
+    if (Math.abs(this.analog) > 0.25) this.padLock = true;
+  }
 
   read(st) {
     const inp = this.inp;
     const L = this.held(LEFT), R = this.held(RIGHT), U = this.held(UPK), D = this.held(DOWNK);
-    inp.steer = (R ? 1 : 0) - (L ? 1 : 0);
+    let steer = (R ? 1 : 0) - (L ? 1 : 0);
+    if (Math.abs(this.analog) > 0.04) steer = this.analog;
+    inp.steer = steer;
+    if (this.padLock && (st.grounded || Math.abs(this.analog) < 0.25)) this.padLock = false;
     inp.jump = this.edge('Space') || this.edge('TouchJump');
     const eL = this.edge('KeyQ') || this.edge('TouchTrickL');
     const eR = this.edge('KeyE') || this.edge('TouchTrickR');
@@ -60,7 +69,9 @@ export class Input {
       inp.grab = this.held(TRICK_L) ? 1 : this.held(TRICK_R) ? 2 : 0;
       inp.tuck = false; inp.brake = false;
       inp.flip = Math.max(-1, Math.min(1, (D ? 1 : 0) - (U ? 1 : 0)));
-      inp.spin = inp.steer;
+      // Spins brauchen eine klare Richtung (Wischen liefert Zwischenwerte)
+      const sv = this.padLock ? 0 : steer;
+      inp.spin = Math.abs(sv) > 0.35 ? Math.sign(sv) : 0;
     }
     return inp;
   }
