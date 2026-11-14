@@ -1,57 +1,200 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#0a1020">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Gipfelrausch">
-  <meta name="description" content="Gipfelrausch – 3D-Ski-Arcade mit Zeitfahren, Bot-Rennen, Slalom, Freestyle, Lawinen-Flucht und Online-Rennen.">
-  <title>Gipfelrausch</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1020'/%3E%3Cpath d='M4 25L13 9l5 8 3-4 7 12z' fill='%23fff'/%3E%3Cpath d='M13 9l2.5 4-2.5 1.5-2-1z' fill='%23ff5a36'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;0,800;1,700;1,800;1,900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=202611141940">
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-      "./js/audio.js": "./js/audio.js?v=202611141940",
-      "./js/bot.js": "./js/bot.js?v=202611141940",
-      "./js/challenges.js": "./js/challenges.js?v=202611141940",
-      "./js/course.js": "./js/course.js?v=202611141940",
-      "./js/fx.js": "./js/fx.js?v=202611141940",
-      "./js/game.js": "./js/game.js?v=202611141940",
-      "./js/input.js": "./js/input.js?v=202611141940",
-      "./js/main.js": "./js/main.js?v=202611141940",
-      "./js/medals.js": "./js/medals.js?v=202611141940",
-      "./js/model.js": "./js/model.js?v=202611141940",
-      "./js/net.js": "./js/net.js?v=202611141940",
-      "./js/rng.js": "./js/rng.js?v=202611141940",
-      "./js/skier.js": "./js/skier.js?v=202611141940",
-      "./js/storage.js": "./js/storage.js?v=202611141940",
-      "./js/ui.js": "./js/ui.js?v=202611141940",
-      "./js/weather.js": "./js/weather.js?v=202611141940",
-      "./js/world.js": "./js/world.js?v=202611141940"
-    }
-  }
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+  // Alte Einladungslinks (timleonhardt.de/?room=…) und auf dem Homescreen installierte Apps landen weiter bei Gipfelrausch.
+  (function () {
+    var q = location.search;
+    var standalone = navigator.standalone || (window.matchMedia && (matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches));
+    if (/[?&]room=/.test(q) || standalone) location.replace('gipfelrausch/' + q + location.hash);
+  })();
+</script>
+<meta name="theme-color" content="#0b1022">
+<meta name="description" content="Browser-Spiele von timleonhardt.de: Gipfelrausch, eine 3D-Ski-Arcade, und Umlauf, ein Spiel mit einer Taste.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Spiele · timleonhardt.de">
+<meta property="og:description" content="Gipfelrausch und Umlauf, direkt im Browser spielen.">
+<meta property="og:url" content="https://timleonhardt.de/">
+<title>Spiele · timleonhardt.de</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1022'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%23f2f5fc'/%3E%3Ccircle cx='8' cy='24' r='2.4' fill='%23ff5a36'/%3E%3Ccircle cx='24.5' cy='8' r='2.4' fill='%23ffc94d'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@400;500;700;800&display=swap">
+<style>
+/* Layout: a short header, then one tile per game like boxes on a shelf; each tile keeps its game's own palette and type. */
+:root {
+  --night: #0b1022;
+  --tile: #121a33;
+  --rule: rgba(214, 224, 255, 0.14);
+  --ink: #f2f5fc;
+  --muted: #9aa6c6;
+  --ski: #ff5a36;      /* Gipfelrausch accent */
+  --orbit: #ffc94d;    /* Umlauf accent */
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ski: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-orbit: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; min-height: 100vh;
+  background: var(--night); color: var(--ink);
+  font: 400 16px/1.5 var(--font-body);
+}
+.wrap {
+  max-width: 1000px; margin: 0 auto;
+  padding-top: calc(48px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 36px;
+}
+header { display: flex; flex-direction: column; gap: 10px; }
+.domain { margin: 0; font: 500 13px/1 var(--font-body); letter-spacing: 0.08em; color: var(--muted); }
+h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-spacing: -0.04em; text-wrap: balance; }
+.intro { margin: 0; color: var(--muted); max-width: 52ch; }
+
+.games { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px; }
+.tile {
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--tile); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
+  color: inherit; text-decoration: none;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.tile:hover { transform: translateY(-3px); border-color: var(--accent); }
+.tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.art { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; max-width: 100%; }
+.body { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px 24px; flex: 1; }
+.kind { margin: 0; font: 500 12px/1 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.name { margin: 0; line-height: 0.9; }
+.ski .name { font: italic 800 48px/0.9 var(--font-ski); text-transform: uppercase; letter-spacing: 0.01em; }
+.orbit .name { font: 800 46px/0.9 var(--font-orbit); letter-spacing: -0.035em; }
+.desc { margin: 0; color: var(--muted); font-size: 15px; }
+.facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.facts li { font: 500 12px/1 var(--font-body); padding: 7px 10px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink); }
+.play {
+  margin-top: auto; align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 10px;
+  font: 700 16px/1 var(--font-body); color: var(--night); background: var(--accent);
+  padding: 13px 18px; border-radius: 9px;
+}
+.play svg { transition: transform 0.2s ease; }
+.tile:hover .play svg { transform: translateX(3px); }
+.ski { --accent: var(--ski); }
+.orbit { --accent: var(--orbit); }
+
+/* Illustration motion */
+.trail { stroke-dasharray: 420; stroke-dashoffset: 0; }
+.tile:hover .trail { animation: carve 1.2s ease-out; }
+@keyframes carve { from { stroke-dashoffset: 420; } to { stroke-dashoffset: 0; } }
+.orbiter { transform-box: view-box; transform-origin: 160px 104px; animation: spin 7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 18px; }
+footer p { margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile, .play svg { transition: none; }
+  .tile:hover { transform: none; }
+  .orbiter, .tile:hover .trail { animation: none; }
+}
+@media (max-width: 420px) {
+  .wrap { padding-top: calc(32px + env(safe-area-inset-top, 0px)); gap: 28px; }
+  .body { padding: 18px 18px 20px; }
+}
+</style>
 </head>
 <body>
-  <div id="game"></div>
-  <div id="hud" class="hidden"></div>
-  <div id="touch" class="hidden"></div>
-  <div id="ui"></div>
-  <div id="toast" aria-live="polite"></div>
-  <div id="loading"><div class="ld-logo">Gipfel<span>rausch</span></div><div class="ld-bar"><i></i></div><p>Lift fährt hoch …</p></div>
-  <noscript><p style="color:#fff;padding:24px">Gipfelrausch braucht JavaScript.</p></noscript>
-  <script type="module" src="js/main.js?v=202611141940"></script>
+<div class="wrap">
+  <header>
+    <p class="domain">timleonhardt.de</p>
+    <h1>Spiele</h1>
+    <p class="intro">Beide laufen direkt im Browser, auf dem Rechner und auf dem Handy. Ohne Anmeldung, ohne Installation.</p>
+  </header>
+
+  <main class="games">
+    <a class="tile ski" href="gipfelrausch/">
+      <svg class="art" viewBox="0 0 320 200" role="img" aria-label="Verschneiter Hang mit orangefarbener Skispur">
+        <defs>
+          <linearGradient id="skiSky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#0a1020"/>
+            <stop offset="1" stop-color="#25386b"/>
+          </linearGradient>
+        </defs>
+        <rect width="320" height="200" fill="url(#skiSky)"/>
+        <g fill="#f2f5fc" opacity="0.7">
+          <circle cx="34" cy="22" r="0.9"/><circle cx="88" cy="38" r="0.7"/><circle cx="142" cy="16" r="1"/>
+          <circle cx="206" cy="30" r="0.8"/><circle cx="262" cy="14" r="0.9"/><circle cx="296" cy="44" r="0.7"/>
+        </g>
+        <path d="M0 132 L38 102 L66 116 L108 74 L146 108 L186 64 L226 104 L264 84 L320 118 L320 200 L0 200 Z" fill="#2c3f75"/>
+        <path d="M108 74 L97 84 L104 83 L109 88 L114 82 L120 85 Z M186 64 L174 75 L181 74 L187 80 L192 73 L199 76 Z M264 84 L255 92 L261 91 L265 95 L270 90 L275 92 Z" fill="#dfe7f7"/>
+        <path d="M0 200 L0 168 C 70 146, 150 128, 220 108 C 262 96, 292 84, 320 72 L320 200 Z" fill="#e9eef8"/>
+        <path d="M0 200 L0 184 C 90 170, 170 150, 248 124 C 280 113, 302 104, 320 96 L320 200 Z" fill="#d3ddf0"/>
+        <g fill="#0f1a33">
+          <path d="M28 162 l6 -16 l6 16 z"/><path d="M40 166 l5 -13 l5 13 z"/>
+          <path d="M232 110 l6 -17 l6 17 z"/><path d="M246 106 l5 -14 l5 14 z"/><path d="M300 84 l5 -15 l5 15 z"/>
+        </g>
+        <path class="trail" d="M286 86 C 246 104, 268 122, 214 132 S 160 160, 120 166 S 66 184, 34 194" fill="none" stroke="#ff5a36" stroke-width="3.2" stroke-linecap="round"/>
+        <g transform="translate(286 86)">
+          <circle r="5.5" fill="#ff5a36"/>
+          <circle r="2.2" fill="#0a1020"/>
+        </g>
+      </svg>
+      <div class="body">
+        <p class="kind">3D-Ski-Arcade</p>
+        <h2 class="name">Gipfelrausch</h2>
+        <p class="desc">Zeitfahren, Bot-Rennen, Slalom, Freestyle und Lawinen-Flucht auf fünf Karten. Online mit bis zu acht Leuten.</p>
+        <ul class="facts"><li>6 Modi</li><li>Online-Rennen</li><li>Tastatur &amp; Touch</li></ul>
+        <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </div>
+    </a>
+
+    <a class="tile orbit" href="umlauf/">
+      <svg class="art" viewBox="0 0 320 200" role="img" aria-label="Kreisbahn mit weißem Punkt, goldenem Funken und roten Splittern">
+        <defs>
+          <radialGradient id="orbGlow" cx="0.5" cy="0.52" r="0.6">
+            <stop offset="0" stop-color="#1d3a7a"/>
+            <stop offset="1" stop-color="#0f2149"/>
+          </radialGradient>
+          <radialGradient id="orbCore" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#eef3ff"/>
+            <stop offset="0.4" stop-color="#bcd3ff" stop-opacity="0.55"/>
+            <stop offset="1" stop-color="#bcd3ff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect width="320" height="200" fill="url(#orbGlow)"/>
+        <circle cx="160" cy="104" r="84" fill="none" stroke="#bcd3ff" stroke-opacity="0.16"/>
+        <circle cx="160" cy="104" r="69" fill="none" stroke="#bcd3ff" stroke-opacity="0.45" stroke-width="6" stroke-dasharray="1 6.23"/>
+        <circle cx="160" cy="104" r="62" fill="none" stroke="#bcd3ff" stroke-opacity="0.7" stroke-width="1.5"/>
+        <circle cx="160" cy="104" r="24" fill="url(#orbCore)"/>
+        <circle cx="207.5" cy="143.9" r="4.5" fill="#ffc94d"/>
+        <circle cx="207.5" cy="143.9" r="10" fill="#ffc94d" opacity="0.2"/>
+        <g fill="#ff6b7a">
+          <path d="M60 48 l9 2 l-4 5 z" transform="rotate(30 64 50)"/>
+          <path d="M262 64 l-9 3 l3 -6 z"/>
+          <path d="M84 170 l7 -6 l1 6 z"/>
+        </g>
+        <g class="orbiter">
+          <path d="M160 42 A 62 62 0 0 1 196 53.6" fill="none" stroke="#eef3ff" stroke-opacity="0.35" stroke-width="5" stroke-linecap="round" transform="rotate(-40 160 104)"/>
+          <circle cx="160" cy="42" r="5.5" fill="#eef3ff"/>
+        </g>
+      </svg>
+      <div class="body">
+        <p class="kind">Ein-Knopf-Spiel</p>
+        <h2 class="name">Umlauf.</h2>
+        <p class="desc">Dein Punkt kreist ohne Pause auf der Bahn, Tippen dreht die Richtung. Sammle Funken und weich den Splittern aus.</p>
+        <ul class="facts"><li>1 Taste</li><li>Bestenliste</li><li>Touch &amp; Tastatur</li></ul>
+        <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </div>
+    </a>
+  </main>
+
+  <footer>
+    <p>timleonhardt.de</p>
+  </footer>
+</div>
 </body>
 </html>
