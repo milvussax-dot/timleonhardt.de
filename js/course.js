@@ -4,19 +4,19 @@
 import { mulberry32, hashString, Noise1D, Noise2D, clamp, lerp, smoothstep } from './rng.js';
 
 export const TRACKS = [
-  { id: 'edelweiss', name: 'Edelweiß-Abfahrt', diff: 'Leicht', tier: 0, length: 1350, grade: 0.21, amp: 20, width: 34, rocks: 0.6,
-    recipe: ['open', 'jumps', 'woods', 'creek', 'fork', 'meadow', 'lake', 'open'] },
-  { id: 'zirbenwald', name: 'Zirbenwald', diff: 'Mittel', tier: 1, length: 1750, grade: 0.25, amp: 28, width: 30, rocks: 0.9,
-    recipe: ['woods', 'boulders', 'fork', 'moguls', 'creek', 'meadow', 'woods', 'jumps', 'gully', 'open'] },
-  { id: 'wolfsschlucht', name: 'Wolfsschlucht', diff: 'Schwer', tier: 2, length: 2150, grade: 0.28, amp: 34, width: 27, rocks: 1.1,
-    recipe: ['gully', 'boulders', 'chasm', 'woods', 'drops', 'fork', 'moguls', 'gully', 'creek', 'jumps', 'boulders'] },
-  { id: 'gletscherkante', name: 'Gletscherkante', diff: 'Extrem', tier: 3, length: 2500, grade: 0.31, amp: 40, width: 25, rocks: 1.3,
-    recipe: ['ridge', 'chasm', 'drops', 'lake', 'boulders', 'gully', 'fork', 'ridge', 'chasm', 'jumps', 'drops'] },
+  { id: 'edelweiss', name: 'Edelweiß-Abfahrt', diff: 'Leicht', tier: 0, length: 800, grade: 0.21, amp: 20, width: 34, rocks: 0.6,
+    recipe: ['open', 'jumps', 'creek', 'woods', 'fork', 'lake'] },
+  { id: 'zirbenwald', name: 'Zirbenwald', diff: 'Mittel', tier: 1, length: 1000, grade: 0.25, amp: 28, width: 30, rocks: 0.9,
+    recipe: ['woods', 'boulders', 'fork', 'moguls', 'creek', 'jumps', 'gully'] },
+  { id: 'wolfsschlucht', name: 'Wolfsschlucht', diff: 'Schwer', tier: 2, length: 1200, grade: 0.28, amp: 34, width: 27, rocks: 1.1,
+    recipe: ['gully', 'boulders', 'chasm', 'drops', 'fork', 'moguls', 'jumps'] },
+  { id: 'gletscherkante', name: 'Gletscherkante', diff: 'Extrem', tier: 3, length: 1400, grade: 0.31, amp: 40, width: 25, rocks: 1.3,
+    recipe: ['ridge', 'chasm', 'drops', 'lake', 'boulders', 'gully', 'fork', 'jumps'] },
 ];
 
 export const PARKS = [
-  { id: 'kristall', name: 'Snowpark Kristall', diff: 'Leicht', tier: 0, length: 950, grade: 0.17, amp: 10, width: 54, big: false, park: true },
-  { id: 'monster', name: 'Monster-Park', diff: 'Schwer', tier: 2, length: 1250, grade: 0.21, amp: 14, width: 58, big: true, park: true },
+  { id: 'kristall', name: 'Snowpark Kristall', diff: 'Leicht', tier: 0, length: 720, grade: 0.17, amp: 10, width: 54, big: false, park: true },
+  { id: 'monster', name: 'Monster-Park', diff: 'Schwer', tier: 2, length: 950, grade: 0.21, amp: 14, width: 58, big: true, park: true },
 ];
 
 export const ENDLESS_DEF = { id: 'lawinenhang', name: 'Lawinenhang', diff: 'Endlos', tier: 2, length: 1000, grade: 0.27, amp: 30, width: 32, rocks: 0.9 };

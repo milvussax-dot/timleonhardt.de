@@ -14,6 +14,7 @@ export function createSkierState(course, x, s) {
     crash: 0, crashDur: 1.5, tuckIn: 0, steerIn: 0, brakeIn: 0,
     grind: null, boost: 0, groundPitch: 0, events: [], finished: false,
     butter: null, jumped: false, grabKind: 0, grabTimes: [0, 0, 0], meter: 0, boosting: false,
+    edge: 0, edgeSide: 0, edgeHold: 0, pump: 0, pumpCd: 0,
   };
   st.y = course.heightAt(x, -s);
   return st;
@@ -44,6 +45,7 @@ export function crash(st, reason) {
   st.grounded = true;
   st.pitch = 0; st.spin = 0; st.pitchVel = 0; st.spinVel = 0;
   st.butter = null; st.grab = 0; st.boosting = false;
+  st.edge = 0; st.edgeSide = 0; st.edgeHold = 0; st.pump = 0;
   st.events.push({ type: 'crash', reason });
 }
 
@@ -93,10 +95,28 @@ function stepGround(st, inp, course, dt, env) {
   }
   const s0 = -st.z;
   const ice = course.iceAt(s0);
-  let turnRate = (inp.tuck ? 1.2 : 2.0) * (1 - Math.min(0.38, v / 100));
+  // Kante: die Lenkung baut sich kurz auf (Gewicht im Schwung) statt sofort voll zu greifen
+  const prevEdge = st.edge || 0;
+  st.edge = prevEdge + (steer - prevEdge) * Math.min(1, dt * 12);
+  const edge = st.edge;
+  // Kantenwechsel nach einem sauber gehaltenen Schwung gibt Schub (rhythmisch carven lohnt sich)
+  if (Math.abs(edge) > 0.45) {
+    const side = Math.sign(edge);
+    if (side !== st.edgeSide) {
+      if (st.edgeSide && st.edgeHold > 0.3 && !(st.pumpCd > 0) && v > 8 && !inp.brake && !st.butter && ice < 0.5) {
+        st.pump = 0.3;
+        st.pumpCd = 0.75; // kein Dauer-Wackeln: höchstens ein Schub pro Schwungpaar
+        st.meter = Math.min(1, st.meter + 0.04);
+        st.events.push({ type: 'carve', speed: v });
+      }
+      st.edgeSide = side;
+      st.edgeHold = 0;
+    } else st.edgeHold = (st.edgeHold || 0) + dt;
+  }
+  let turnRate = (inp.tuck ? 1.45 : 2.35) * (1 - Math.min(0.3, v / 110));
   if (inp.brake) turnRate += 0.5;
   turnRate *= 1 - 0.4 * ice;
-  st.heading = clamp(st.heading + steer * turnRate * dt, -1.5, 1.5);
+  st.heading = clamp(st.heading + edge * turnRate * dt, -1.5, 1.5);
   const sinH = Math.sin(st.heading), cosH = Math.cos(st.heading);
   course.gradient(st.x, st.z, grad);
   const gx = grad[0], gz = grad[1];
@@ -104,13 +124,18 @@ function stepGround(st, inp, course, dt, env) {
   const norm = 1 / Math.sqrt(1 + gx * gx + gz * gz);
   const s = -st.z;
   const off = !course.onPiste(st.x, s);
-  let mu = off ? 0.13 : 0.035;
+  let mu = off ? 0.13 : 0.03;
   mu = lerp(mu, 0.012, ice);
   if (inp.brake) mu += 0.3 * (1 - 0.7 * ice);
   if (course.slowAt(st.x, s)) mu += 0.35;
-  let k = inp.tuck ? 0.0024 : 0.0045;
+  let k = inp.tuck ? 0.0021 : 0.004;
   if (off) k += 0.0035;
-  let a = G * along * norm - mu * G * norm - k * v * v - Math.abs(steer) * v * 0.028 * (1 - 0.6 * ice);
+  // Kurven kosten weniger Tempo als früher (0.028), der Schub beim Kantenwechsel holt den Rest zurück
+  let a = G * along * norm - mu * G * norm - k * v * v - Math.abs(edge) * v * 0.018 * (1 - 0.6 * ice);
+  // Anschieben: aus dem Stand und nach Stürzen schnell wieder auf Tempo
+  if (!inp.brake && !off && v < 9) a += (9 - v) * 0.45;
+  if (st.pumpCd > 0) st.pumpCd -= dt;
+  if (st.pump > 0) { a += 2.8 * (1 - clamp((v - 18) / 14, 0, 0.7)); st.pump -= dt; }
   if (st.boost > 0) { a += 8; st.boost -= dt; }
   st.boosting = false;
   if (inp.boost && st.meter > 0.01) { a += 5; st.meter = Math.max(0, st.meter - dt * 0.65); st.boosting = true; }
@@ -138,7 +163,7 @@ function stepGround(st, inp, course, dt, env) {
   st.groundPitch = lerp(st.groundPitch, -Math.atan(along), Math.min(1, dt * 10));
   if (inp.jump && st.grounded) {
     takeoff(st, sinH, cosH);
-    st.vy += 5.0;
+    st.vy += 5.6;
     st.jumped = true;
     st.events.push({ type: 'jump' });
   }

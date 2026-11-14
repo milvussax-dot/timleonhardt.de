@@ -31,12 +31,12 @@ Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Sch
 
 | Taste | Am Boden | In der Luft |
 |---|---|---|
-| ← → / A D | Lenken | Spin |
+| ← → / A D | Lenken (im Rhythmus links/rechts carven gibt Schub) | Spin |
 | ↑ / W | Hocke (schneller) | Frontflip |
 | ↓ / S | Bremsen | Backflip |
 | Leertaste | Springen (Ollie), vom Rail abspringen | – |
 | Q / E | Butter-360 links / rechts | Halten: Mute- / Tail-Grab |
-| Shift | Boost (wird durch Tricks aufgeladen) | – |
+| Shift | Boost (wird durch Tricks und saubere Schwünge aufgeladen) | – |
 | Esc · R · M | Pause · Neustart · Ton | |
 
 Auf Handy und Tablet erscheinen Touch-Buttons.

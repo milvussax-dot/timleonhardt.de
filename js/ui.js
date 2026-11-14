@@ -380,12 +380,12 @@ export class UI {
         <div class="field"><span>Sound</span><div class="seg"><button class="${p.sound ? 'sel' : ''}" data-sound="1">An</button><button class="${!p.sound ? 'sel' : ''}" data-sound="0">Aus</button></div></div>
         <h4>Steuerung</h4>
         <table class="keys">
-          <tr><td><kbd>←</kbd><kbd>→</kbd> / <kbd>A</kbd><kbd>D</kbd></td><td>Lenken · in der Luft: Spin</td></tr>
+          <tr><td><kbd>←</kbd><kbd>→</kbd> / <kbd>A</kbd><kbd>D</kbd></td><td>Lenken · im Rhythmus links/rechts carven gibt Schub · in der Luft: Spin</td></tr>
           <tr><td><kbd>↑</kbd> / <kbd>W</kbd></td><td>Hocke (schneller) · in der Luft: Frontflip</td></tr>
           <tr><td><kbd>↓</kbd> / <kbd>S</kbd></td><td>Bremsen · in der Luft: Backflip</td></tr>
           <tr><td><kbd>Leertaste</kbd></td><td>Springen (Ollie) · vom Rail abspringen</td></tr>
           <tr><td><kbd>Q</kbd> / <kbd>E</kbd></td><td>Am Boden: Butter-360 links/rechts · in der Luft halten: Mute- / Tail-Grab</td></tr>
-          <tr><td><kbd>Shift</kbd></td><td>Boost – wird durch Tricks aufgeladen</td></tr>
+          <tr><td><kbd>Shift</kbd></td><td>Boost – wird durch Tricks und saubere Schwünge aufgeladen</td></tr>
           <tr><td><kbd>Esc</kbd> · <kbd>R</kbd> · <kbd>M</kbd></td><td>Pause · Neustart · Ton an/aus</td></tr>
         </table>
         <p class="muted small">Tricks zählen in jedem Modus: Sie füllen deine Boost-Leiste und landen als Trickpunkte in der Wertung. Wer beim Absprung noch eine Taste hält, muss sie erst loslassen, bevor sie in der Luft wirkt – so gibt es keine ungewollten Flips.</p>

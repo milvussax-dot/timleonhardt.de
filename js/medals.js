@@ -21,8 +21,9 @@ export function timeMedal(time, par) {
 }
 
 export const SCORE_THRESHOLDS = {
-  kristall: [null, 2500, 6000, 10000, 15000],
-  monster: [null, 4000, 9000, 15000, 22000],
+  // an die kürzeren Parks angepasst (Kristall 2 statt 3, Monster 3 statt 5 Abschnitte)
+  kristall: [null, 1700, 4000, 6700, 10000],
+  monster: [null, 2400, 5400, 9000, 13200],
 };
 
 export function scoreMedal(parkId, score) {

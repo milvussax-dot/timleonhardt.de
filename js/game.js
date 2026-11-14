@@ -21,9 +21,10 @@ export const MODES = [
 export const modeById = (id) => MODES.find((m) => m.id === id) || MODES[0];
 
 export function boardKey(mode, trackId) {
-  if (mode === 'zeit' || mode === 'bots') return 'race:' + trackId;
-  if (mode === 'slalom') return 'slalom:' + trackId;
-  if (mode === 'freestyle') return 'freestyle:' + trackId;
+  // "2:" = kürzere Strecken; alte Bestzeiten und Ghosts passen nicht mehr dazu
+  if (mode === 'zeit' || mode === 'bots') return 'race2:' + trackId;
+  if (mode === 'slalom') return 'slalom2:' + trackId;
+  if (mode === 'freestyle') return 'freestyle2:' + trackId;
   return 'lawine';
 }
 
@@ -236,6 +237,10 @@ export class Session {
           app.hud.popup(CRASH_TEXT[ev.reason] || 'Sturz!', 'bad');
           break;
         case 'rescued': app.hud.popup('Bergwacht hat dich zurückgebracht', 'info'); break;
+        case 'carve':
+          app.audio.hiss(0.22, { freq: 1500, sweep: -700, vol: 0.13 });
+          this.cs.kick = Math.min(1, ev.speed / 25);
+          break;
         case 'grindStart': app.audio.click(); break;
         case 'butterStart': app.audio.jump(); break;
         case 'groundTrick': this.addScore(ev.name, ev.pts, false); break;
@@ -569,6 +574,9 @@ export class Session {
     }
     let shake = cs.shake;
     if (this.av && this.avGap != null && !this.player.finished) shake = Math.max(shake, clamp(1 - this.avGap / 70, 0, 1) * 0.5);
+    // leichtes Rütteln ab ca. 85 km/h
+    const ride = !this.attract && this.state !== 'countdown' && st.grounded && !st.grind && st.crash <= 0;
+    if (ride && sp > 23.5) shake = Math.max(shake, Math.min(0.28, (sp - 23.5) / 40));
     if (shake > 0 && dt > 0) {
       const s = shake * 0.22;
       cam.position.x += (Math.random() - 0.5) * s;
@@ -576,9 +584,15 @@ export class Session {
     }
     cs.shake = Math.max(0, cs.shake - dt * 2);
     cam.lookAt(cs.look);
-    const fov = 66 + clamp(sp - 8, 0, 34) * 0.62;
+    // Kamera legt sich mit in die Kurve
+    const rollT = ride ? -(st.edge || 0) * clamp(sp / 26, 0, 1) * 0.13 : 0;
+    cs.roll = lerp(cs.roll || 0, rollT, Math.min(1, dt * 4));
+    if (Math.abs(cs.roll) > 0.0005) cam.rotateZ(cs.roll);
+    // Sichtfeld: Tempo, Boost und Schub aus dem Kantenwechsel
+    cs.kick = Math.max(0, (cs.kick || 0) - dt * 2.2);
+    const fov = 66 + clamp(sp - 8, 0, 34) * 0.62 + (st.boosting || st.boost > 0 ? 6 : 0) + cs.kick * 4;
     if (Math.abs(cam.fov - fov) > 0.05) {
-      cam.fov = lerp(cam.fov, fov, Math.min(1, dt * 3));
+      cam.fov = lerp(cam.fov, fov, Math.min(1, dt * 4));
       cam.updateProjectionMatrix();
     }
   }
