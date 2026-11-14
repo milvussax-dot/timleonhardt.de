@@ -566,21 +566,28 @@ export class Session {
     } else if (pov) {
       // Augenhöhe, in der Hocke tiefer; Blick in Fahrtrichtung, Saltos und Drehungen werden ausgeglichen
       const air = !st.grounded && !st.grind;
-      const eye = 1.62 - (st.tuckIn ? 0.42 : 0) - (st.brakeIn ? 0.08 : 0);
+      const eye = 1.8 - (st.tuckIn ? 0.38 : 0) - (st.brakeIn ? 0.08 : 0);
       cs.eye = lerp(cs.eye || eye, eye, Math.min(1, dt * 8));
       px = st.x + sx * 0.3; pz = st.z + cz * 0.3; py = st.y + cs.eye;
-      const pitch = air ? clamp(Math.atan2(st.vy, Math.hypot(st.vx, st.vz)) * 0.55, -0.55, 0.3) : (st.groundPitch || 0);
-      const ahead = 12;
-      lx = st.x + sx * ahead; lz = st.z + cz * ahead; ly = py + Math.tan(pitch) * ahead - 1.7;
+      // weit nach vorn auf das Gelände schauen, damit man Wege und Hindernisse früh sieht
+      const ahead = 20;
+      lx = st.x + sx * ahead; lz = st.z + cz * ahead;
+      if (air) ly = py + Math.tan(clamp(Math.atan2(st.vy, Math.hypot(st.vx, st.vz)) * 0.55, -0.55, 0.3)) * ahead - 2.0;
+      else ly = clamp(this.course.heightAt(lx, lz) + 1.4, py - 9, py - 0.6);
       cs.povBlend = Math.min(1, (cs.povBlend || 0) + dt * 2.5);
       lagK = 8 + 50 * cs.povBlend;
     } else {
       const crashing = st.crash > 0 ? 1 : 0;
-      const dist = 5.0 + Math.min(2.6, sp * 0.06) + crashing * 2.2;
-      const h = 2.2 + Math.min(1.2, sp * 0.025) + crashing * 1.2;
+      // erhöhter Winkel: Höhe relativ zum Hang (hinter dem Fahrer liegt der Hang höher),
+      // Blick schräg auf den Hang voraus, damit man sieht, was kommt
+      const sl = clamp(this.course.slopeAt(st.s != null ? st.s : -st.z), 0, 0.7);
+      const dist = 6.8 + Math.min(2.4, sp * 0.06) + crashing * 2.2;
+      const lift = 4.6 + Math.min(1.2, sp * 0.03) + crashing * 1.2;
       lagK = 12;
-      px = st.x - sx * dist; pz = st.z - cz * dist; py = st.y + h;
-      lx = st.x + sx * 6; ly = st.y + 1.0; lz = st.z + cz * 6;
+      px = st.x - sx * dist; pz = st.z - cz * dist; py = st.y + lift + sl * dist;
+      const ahead = 10 + Math.min(8, sp * 0.25);
+      lx = st.x + sx * ahead; lz = st.z + cz * ahead;
+      ly = crashing ? st.y + 1.0 : st.y - sl * ahead + 0.6;
     }
     const gy = this.course.heightAt(px, pz) + (pov ? 0.9 : 1.3);
     if (py < gy) py = gy;
