@@ -1,16 +1,18 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=7';
-import { Renderer } from './render.js?v=7';
-import { cellRand } from './world.js?v=7';
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=7';
+import { Game } from './sim.js?v=8';
+import { Renderer } from './render.js?v=8';
+import { cellRand } from './world.js?v=8';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=8';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
 const INDEX_KEY = 'hearthvale.saves';      // Liste aller Spielstände
 const SLOT_KEY = 'hearthvale.slot.';
 const MAX_SLOTS = 5;
-// Einmal-Code: nur der Hash steht hier, der Code selbst nicht. Gilt ein einziges Mal pro Browser.
-const GIFT_HASH = '85d5518962cbbcec9d9dae0f15d1722133e47de1e366cb86f3c1ab3a56072768', GIFT_KEY = 'hearthvale.gift', GIFT_COINS = 100000;
+// Codes: nur ihre Prüfsummen stehen hier, die Codes selbst nicht.
+// Münzen gibt es ein einziges Mal pro Browser, der Siedler-Code füllt jedes Mal alle freien Betten.
+const CODES = { '85d5518962cbbcec9d9dae0f15d1722133e47de1e366cb86f3c1ab3a56072768': 'coins', '5fc6e8b91dbabeb654e4eeb85964611633ad4a7581ba0b2dbdc91c38c3dd5063': 'settlers' };
+const GIFT_KEY = 'hearthvale.gift', GIFT_COINS = 100000;
 const cleanSaveName = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 30);
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -259,19 +261,32 @@ async function sha256(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
+// liefert { ok } oder { err }
 async function redeemCode(raw) {
   const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!code) return 'Gib einen Code ein.';
-  let used = null;
-  try { used = localStorage.getItem(GIFT_KEY); } catch (e) { /* egal */ }
+  if (!code) return { err: 'Gib einen Code ein.' };
   let h = '';
-  try { h = await sha256('hearthvale:' + code); } catch (e) { return 'Das geht hier gerade nicht.'; }
-  if (h !== GIFT_HASH) return 'Diesen Code gibt es nicht.';
-  if (used) return 'Dieser Code wurde schon eingelöst.';
-  game.coins += GIFT_COINS; game.gift = true;
-  try { localStorage.setItem(GIFT_KEY, String(Date.now())); } catch (e) { /* egal */ }
+  try { h = await sha256('hearthvale:' + code); } catch (e) { return { err: 'Das geht hier gerade nicht.' }; }
+  const kind = CODES[h];
+  if (!kind) return { err: 'Diesen Code gibt es nicht.' };
+  const note = ' Dieses Tal zählt jetzt nicht mehr für die Bestenliste.';
+  if (kind === 'coins') {
+    let used = null;
+    try { used = localStorage.getItem(GIFT_KEY); } catch (e) { /* egal */ }
+    if (used) return { err: 'Dieser Code wurde schon eingelöst.' };
+    game.coins += GIFT_COINS; game.gift = true;
+    try { localStorage.setItem(GIFT_KEY, String(Date.now())); } catch (e) { /* egal */ }
+    saveNow(); renderHud();
+    game.toast(`+${GIFT_COINS.toLocaleString('de-DE')} Münzen`);
+    return { ok: `${GIFT_COINS.toLocaleString('de-DE')} Münzen gutgeschrieben.${note}` };
+  }
+  // Siedler: alle freien Betten auf einmal
+  const n = game.fillBeds();
+  if (!n) return { err: game.beds ? `Alle ${game.beds} Betten sind schon belegt. Bau mehr Wohnhäuser, dann bringt der Code wieder Siedler.` : 'Es gibt noch keine Betten. Bau zuerst ein Wohnhaus.' };
+  game.gift = true;
   saveNow(); renderHud();
-  return null;
+  game.toast(`+${n} Siedler`);
+  return { ok: `${n} ${n === 1 ? 'neuer Siedler ist' : 'neue Siedler sind'} eingezogen, jetzt sind alle ${game.beds} Betten belegt. Sorg für genug Essen, hungrige Siedler ziehen wieder weg.${note}` };
 }
 function showMenu() {
   openModal(`
@@ -301,10 +316,10 @@ function showMenu() {
     const giftIn = card.querySelector('#giftIn'), giftBtn = card.querySelector('[data-act=redeem]'), giftMsg = card.querySelector('#giftMsg');
     const doRedeem = async () => {
       giftBtn.disabled = true;
-      const err = await redeemCode(giftIn.value);
+      const r = await redeemCode(giftIn.value);
       giftBtn.disabled = false;
-      giftMsg.textContent = err || `${GIFT_COINS.toLocaleString('de-DE')} Münzen gutgeschrieben. Dieses Tal zählt jetzt nicht mehr für die Bestenliste.`;
-      if (!err) { giftIn.value = ''; game.toast(`+${GIFT_COINS.toLocaleString('de-DE')} Münzen`); }
+      giftMsg.textContent = r.err || r.ok;
+      if (r.ok) giftIn.value = '';
     };
     giftBtn.addEventListener('click', doRedeem);
     giftIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doRedeem(); } });

@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=7';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=7';
-import { Realm } from './realm.js?v=7';
+} from './data.js?v=8';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=8';
+import { Realm } from './realm.js?v=8';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 // Bäume (1–20), Felsen (21–22) und Sträucher (23–27) passen in ein Byte
@@ -290,6 +290,17 @@ export class Game {
     this.resetSettler(s);
     this.settlers.push(s);
     return s;
+  }
+  // alle freien Betten auf einmal belegen (Code im Menü). Liefert die Zahl der neuen Siedler.
+  fillBeds() {
+    const houses = this.buildings.filter((b) => b.type === 'house' && b.built);
+    let n = 0;
+    while (this.settlers.length < this.beds && n < 1000) {
+      const home = houses.find((h) => this.settlers.filter((s) => s.home === h.id).length < this.bedsOf(h));
+      if (!home) break;
+      this.spawnSettler(home); n++;
+    }
+    return n;
   }
   removeSettler(s) {
     this.resetSettler(s);
