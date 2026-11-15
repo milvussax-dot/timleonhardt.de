@@ -1,10 +1,13 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js';
+import { Game } from './sim.js?v=3';
 import { Renderer } from './render.js';
 import { ITEMS, BUILDINGS, BUILD_MENU, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS } from './data.js';
 
 const $ = (id) => document.getElementById(id);
-const SAVE_KEY = 'hearthvale.save';
+const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
+const INDEX_KEY = 'hearthvale.saves';      // Liste aller Spielstände
+const SLOT_KEY = 'hearthvale.slot.';
+const MAX_SLOTS = 5;
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (inner) => `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true">${inner}</svg>`;
@@ -60,22 +63,66 @@ function bindLb(root, rerender) {
 }
 
 /* ---------- Start ---------- */
-function savedGame() { try { const s = localStorage.getItem(SAVE_KEY); return s ? Game.load(s) : null; } catch (e) { return null; } }
-function saveNow() { if (!game || !active) return; try { localStorage.setItem(SAVE_KEY, game.save()); } catch (e) { /* Speicher voll oder gesperrt */ } }
+/* ---------- Spielstände ---------- */
+let slot = null;   // Spielstand, in den gerade gespeichert wird
+function readIndex() { try { const a = JSON.parse(localStorage.getItem(INDEX_KEY) || '[]'); return Array.isArray(a) ? a.filter((m) => m && m.id) : []; } catch (e) { return []; } }
+function writeIndex(list) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(list)); return true; } catch (e) { return false; } }
+const slotList = () => readIndex().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+const newSlotId = () => 's' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+function metaOf(g, id) { return { id, mode: g.mode, week: g.week, day: g.day, value: g.talwert().total, settlers: g.settlers.length, updated: Date.now() }; }
+function loadSlot(id) { try { const s = localStorage.getItem(SLOT_KEY + id); return s ? Game.load(s) : null; } catch (e) { return null; } }
+function deleteSlot(id) { try { localStorage.removeItem(SLOT_KEY + id); } catch (e) { /* egal */ } writeIndex(readIndex().filter((m) => m.id !== id)); }
+// Der Spielstand der alten Version (nur einer) wird zum ersten Eintrag der Liste. Geht etwas schief, bleibt er unangetastet.
+function migrateOldSave() {
+  let old = null, g = null;
+  try { old = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
+  if (!old) return;
+  try { g = Game.load(old); } catch (e) { g = null; }
+  if (!g) return;
+  const id = newSlotId();
+  try {
+    localStorage.setItem(SLOT_KEY + id, old);
+    if (!writeIndex([...readIndex(), metaOf(g, id)])) throw new Error('index');
+    localStorage.removeItem(SAVE_KEY);
+  } catch (e) { try { localStorage.removeItem(SLOT_KEY + id); } catch (e2) { /* egal */ } }
+}
+function saveNow() {
+  if (!game || !active || !slot) return;
+  try {
+    localStorage.setItem(SLOT_KEY + slot, game.save());
+    writeIndex([...readIndex().filter((m) => m.id !== slot), metaOf(game, slot)]);
+  } catch (e) { game.toast('Speichern hat nicht geklappt, der Speicher ist voll. Lösch einen alten Spielstand.'); }
+}
+function slotTitle(m) { return m.mode === 'week' ? `Tal der Woche · KW ${Number(String(m.week || '').split('-w')[1]) || '?'}` : 'Zufälliges Tal'; }
+function whenText(t) {
+  const d = new Date(t), now = new Date(), hm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return `heute, ${hm}`;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `gestern, ${hm}`;
+  return `${d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}, ${hm}`;
+}
+let confirmDel = null;
 
 function showStart() {
   active = false;
-  const saved = savedGame();
+  const list = slotList();
   const wk = isoWeek();
+  const full = list.length >= MAX_SLOTS;
   openModal(() => `
     <h1>Hearthvale</h1>
     <p class="lead">Ein Tal, ein Jahr. Bestell Felder, fäll Bäume und bau eine Siedlung, in der deine Siedler selbst arbeiten. Holz wird zu Brettern, Weizen zu Mehl und Brot. Nach 28 Tagen zählt der Talwert.</p>
-    <div class="actions">
-      ${saved ? `<button class="btn primary" data-act="continue" type="button">Weiterspielen · Tag ${saved.day}</button>` : ''}
-      <button class="btn ${saved ? '' : 'primary'}" data-act="week" type="button">Tal der Woche (KW ${wk.n})</button>
-      <button class="btn" data-act="random" type="button">Zufälliges Tal</button>
+    ${list.length ? `<div class="box" style="margin-top:12px"><h3>Deine Spielstände</h3><div class="slots">${list.map((m, i) => `
+      <div class="slot">
+        <div class="slot-info"><b>${esc(slotTitle(m))}</b><span class="muted">Tag ${Number(m.day) || 1} · ${Number(m.settlers) || 0} Siedler · Talwert ${Number(m.value || 0).toLocaleString('de-DE')} · ${esc(whenText(m.updated || Date.now()))}</span></div>
+        <div class="slot-btns"><button class="btn ${i === 0 ? 'primary' : ''}" data-load="${esc(m.id)}" type="button">Weiterspielen</button><button class="btn small" data-del="${esc(m.id)}" type="button">${confirmDel === m.id ? 'Wirklich löschen?' : 'Löschen'}</button></div>
+      </div>`).join('')}</div></div>` : ''}
+    <div class="box" style="margin-top:12px"><h3>Neues Tal anfangen</h3>
+      <div class="actions" style="margin-top:4px">
+        <button class="btn ${list.length ? '' : 'primary'}" data-act="week" type="button" ${full ? 'disabled' : ''}>Tal der Woche (KW ${wk.n})</button>
+        <button class="btn" data-act="random" type="button" ${full ? 'disabled' : ''}>Zufälliges Tal</button>
+      </div>
+      <p class="muted">${full ? `Du hast schon ${MAX_SLOTS} Spielstände. Lösch einen, um ein neues Tal anzufangen.` : list.length ? 'Ein neues Tal bekommt einen eigenen Spielstand, deine anderen bleiben erhalten. Nur im Tal der Woche zählt die Bestenliste.' : 'Im Tal der Woche spielen alle auf derselben Karte. Nur dort zählt die Bestenliste.'}</p>
     </div>
-    <p class="muted" id="startNote">${saved ? 'Ein neues Tal ersetzt deinen Spielstand.' : 'Im Tal der Woche spielen alle auf derselben Karte. Nur dort zählt die Bestenliste.'}</p>
     <div class="grid2">
       <div class="box"><h3>So geht's</h3><div class="keys">
         <kbd>Klick</kbd><span>hingehen oder etwas tun</span>
@@ -87,14 +134,19 @@ function showStart() {
       <div class="box lb" id="lbBox">${lbHtml(LB.tab)}</div>
     </div>`, (card) => {
     const act = (a, fn) => { const b = card.querySelector(`[data-act=${a}]`); if (b) b.addEventListener('click', fn); };
-    let armed = null;
-    const guard = (what, fn) => () => {
-      if (saved && armed !== what) { armed = what; card.querySelector('#startNote').textContent = 'Nochmal klicken, um deinen Spielstand zu ersetzen.'; return; }
-      fn();
-    };
-    act('continue', () => { game = saved; startGame(); });
-    act('week', guard('week', () => { game = Game.create(`hearthvale:${wk.key}`, 'week', wk.key); startGame(true); }));
-    act('random', guard('random', () => { game = Game.create(`zufall:${Date.now()}:${Math.random()}`, 'random', null); startGame(true); }));
+    card.querySelectorAll('[data-load]').forEach((b) => b.addEventListener('click', () => {
+      const g = loadSlot(b.dataset.load);
+      if (!g) { b.textContent = 'Spielstand beschädigt'; b.disabled = true; return; }
+      confirmDel = null; game = g; slot = b.dataset.load; startGame();
+    }));
+    card.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.del;
+      if (confirmDel !== id) { confirmDel = id; showStart(); return; }
+      confirmDel = null; deleteSlot(id); showStart();
+    }));
+    const startNew = (make) => { if (slotList().length >= MAX_SLOTS) return; confirmDel = null; game = make(); slot = newSlotId(); startGame(true); };
+    act('week', () => startNew(() => Game.create(`hearthvale:${wk.key}`, 'week', wk.key)));
+    act('random', () => startNew(() => Game.create(`zufall:${Date.now()}:${Math.random()}`, 'random', null)));
     const rer = () => { const box = card.querySelector('#lbBox'); if (box) { box.innerHTML = lbHtml(LB.tab); bindLb(box, rer); } };
     bindLb(card.querySelector('#lbBox'), rer);
     loadLb(LB.tab, wk.key).then(rer);
@@ -483,7 +535,9 @@ function boot() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
   if (window.innerWidth >= 1200) R.cam.zoom = 1.25;
   // Hintergrund für den Startbildschirm: dein Spielstand oder das Tal der Woche
-  game = savedGame() || Game.create(`hearthvale:${isoWeek().key}`, 'week', isoWeek().key);
+  migrateOldSave();
+  const recent = slotList()[0];
+  game = (recent && loadSlot(recent.id)) || Game.create(`hearthvale:${isoWeek().key}`, 'week', isoWeek().key);
   R.snap(game);
   showStart();
   requestAnimationFrame(frame);

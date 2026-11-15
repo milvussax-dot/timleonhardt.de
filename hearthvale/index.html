@@ -149,6 +149,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .namerow { display: flex; gap: 6px; margin-top: 8px; }
 .namerow input { flex: 1; min-width: 0; font: 700 15px var(--font); padding: 9px 10px; border-radius: 9px; border: 2px solid #d8d0bb; background: #fff; color: var(--paper-ink); }
 .muted { color: #6b7a5a !important; font-size: 13px; }
+.slots { display: flex; flex-direction: column; gap: 8px; }
+.slot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; background: #f7f2e3; border-radius: 10px; padding: 10px 12px; }
+.slot-info { display: flex; flex-direction: column; min-width: 0; }
+.slot-info b { font-weight: 800; color: #2f4a26; }
+.slot-btns { display: flex; gap: 6px; align-items: center; }
 
 @media (max-width: 720px) {
   #mini { width: 120px; height: 96px; }
@@ -211,6 +216,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 <script src="../lb-config.js"></script>
 <script src="../lb.js"></script>
-<script type="module" src="js/main.js?v=2"></script>
+<script type="module" src="js/main.js?v=3"></script>
 </body>
 </html>

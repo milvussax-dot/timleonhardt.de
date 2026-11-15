@@ -57,6 +57,8 @@ export class Game {
     this.time += dt;
     this.updatePlayer(dt);
     for (const s of this.settlers) this.updateSettler(s, dt);
+    this.builderCheck = (this.builderCheck || 0) - dt;
+    if (this.builderCheck <= 0) { this.builderCheck = 1.5; this.ensureBuilder(); }
     for (const b of this.buildings) if (b.anim != null) b.anim += dt;
     for (let i = this.fx.length - 1; i >= 0; i--) { this.fx[i].t += dt; if (this.fx[i].t > 1.4) this.fx.splice(i, 1); }
     if (this.time >= DAY_LEN) return this.endDay();
@@ -225,6 +227,15 @@ export class Game {
     return best;
   }
   workers() { return this.settlers.filter((s) => s.job != null).length; }
+  // Baustellen bauen nur Siedler ohne Arbeitsplatz. Haben alle einen Job, legt einer ihn kurz nieder,
+  // baut die Baustelle fertig und sucht sich danach wieder einen Arbeitsplatz (meist seinen alten).
+  ensureBuilder() {
+    const open = this.buildings.some((b) => !b.built && !(b.blockedUntil > this.clock));
+    if (!open || this.settlers.some((s) => s.job == null)) return;
+    const rank = (s) => { const b = this.byId(s.job); return (b && b.paused ? 0 : 2) + (s.state === 'seek' && s.timer > 0 ? 0 : 1); };
+    const cand = this.settlers.filter((s) => !s.carry && s.state !== 'working').sort((a, c) => rank(a) - rank(c))[0];
+    if (cand) this.resetSettler(cand);
+  }
 
   /* ---------- Siedler ---------- */
   spawnSettler(home) {
@@ -330,7 +341,7 @@ export class Game {
       s.task = null;
     }
     for (const site of this.buildings) {
-      if (site.built) continue;
+      if (site.built || site.blockedUntil > this.clock) continue;
       const builders = this.settlers.filter((o) => o !== s && o.task && o.task.site === site.id).length;
       if (builders >= 2) continue;
       if (this.goTo(s, nextToRect(site.x, site.y, site.w, site.h), site.x + 1, site.y + 1, 'building')) {
@@ -338,6 +349,7 @@ export class Game {
         if (s.state === 'building') this.buildTick(s, site);
         return;
       }
+      site.blockedUntil = this.clock + 15;
     }
     // 2. freie Arbeitsplätze
     let best = null, bd = Infinity;
