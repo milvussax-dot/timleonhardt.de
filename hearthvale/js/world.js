@@ -1,5 +1,5 @@
 // Karte: Zufall, Rauschen, Generator, Begehbarkeit und Wegsuche
-import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js';
+import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=5';
 
 export function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 export function mulberry(a) {
@@ -30,6 +30,9 @@ export class World {
     this.wet = new Uint8Array(w * h);
     this.obj = new Array(w * h).fill(null);
     this.bld = new Int16Array(w * h).fill(-1);
+    this.tstruct = new Int16Array(w * h).fill(-1);   // Hütten und Lager fremder Stämme
+    this.seen = new Uint8Array(w * h);                // schon erkundet
+    this.land = new Uint8Array(w * h);                // 0 frei, 1 dein Land, 2+i Land von Stamm i
     this.dirty = new Set();        // Kacheln (Chunks), die neu gezeichnet werden müssen
   }
   i(x, y) { return y * this.w + x; }
@@ -39,14 +42,14 @@ export class World {
   walkable(x, y) {
     if (!this.inb(x, y)) return false;
     const k = y * this.w + x;
-    if (BLOCK_GROUND.has(this.ground[k]) || this.bld[k] >= 0) return false;
+    if (BLOCK_GROUND.has(this.ground[k]) || this.bld[k] >= 0 || this.tstruct[k] >= 0) return false;
     const o = this.obj[k];
     return !(o && BLOCK_OBJ.has(o.t));
   }
   isFree(x, y) {   // freier Boden ohne Objekt und Gebäude
     if (!this.inb(x, y)) return false;
     const k = y * this.w + x;
-    return FREE_GROUND.has(this.ground[k]) && !this.obj[k] && this.bld[k] < 0;
+    return FREE_GROUND.has(this.ground[k]) && !this.obj[k] && this.bld[k] < 0 && this.tstruct[k] < 0;
   }
   setGround(x, y, g) { this.ground[y * this.w + x] = g; this.touch(x, y); }
   touch(x, y) { this.dirty.add(((y >> 4) << 8) | (x >> 4)); }
@@ -99,23 +102,41 @@ export function generate(seedStr) {
       w.ground[y * W + x] = Math.abs(dx) <= width - 2 ? G.DEEP : G.WATER;
     }
   }
-  // See: an einer tiefen Stelle abseits des Flusses
-  let best = null;
-  for (let t = 0; t < 200; t++) {
-    const x = 8 + Math.floor(rnd() * (W - 16)), y = 8 + Math.floor(rnd() * (H - 16));
-    if (Math.abs(x - riverX[y]) < 12) continue;
+  // Startplatz: offenes Gelände nahe der Mitte, links oder rechts vom Fluss
+  const side = rnd() < 0.5 ? -1 : 1;
+  let start = null, bestScore = -1;
+  for (let t = 0; t < 600; t++) {
+    const y = Math.floor(H * 0.3 + rnd() * H * 0.4);
+    const x = riverX[y] + side * (8 + Math.floor(rnd() * 10));
+    if (!w.inb(x - 6, y - 6) || !w.inb(x + 6, y + 6)) continue;
+    let ok = 0;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+      const g = w.g(x + dx, y + dy);
+      if (g === G.GRASS || g === G.MEADOW || g === G.FOREST) ok++;
+    }
+    if (ok > bestScore) { bestScore = ok; start = { x, y }; }
+  }
+  // Großer See mit einer Insel, abseits des Flusses
+  let best = null, island = null;
+  for (let t = 0; t < 400; t++) {
+    const x = 16 + Math.floor(rnd() * (W - 32)), y = 14 + Math.floor(rnd() * (H - 28));
+    if (Math.abs(x - riverX[y]) < 20 || Math.hypot(x - start.x, y - start.y) < 34) continue;
     const e = elev[y * W + x];
     if (e < 0.75 && (!best || e < best.e)) best = { x, y, e };
   }
   if (best) {
-    const R = 3.5 + rnd() * 2;
-    for (let dy = -7; dy <= 7; dy++) for (let dx = -8; dx <= 8; dx++) {
+    const R = 8 + rnd() * 2.5, IR = 3.4;
+    for (let dy = -14; dy <= 14; dy++) for (let dx = -16; dx <= 16; dx++) {
       const x = best.x + dx, y = best.y + dy;
       if (!w.inb(x, y)) continue;
-      const d = Math.sqrt(dx * dx * 0.8 + dy * dy) + (detailN(x * 0.4, y * 0.4, 2) - 0.5) * 2.2;
-      if (d < R - 1.5) w.ground[y * W + x] = G.DEEP;
+      const wob = (detailN(x * 0.35, y * 0.35, 2) - 0.5) * 2.6;
+      const d = Math.sqrt(dx * dx * 0.75 + dy * dy) + wob;
+      const di = Math.sqrt(dx * dx * 0.75 + dy * dy) + wob * 0.4;
+      if (di < IR) { w.ground[y * W + x] = G.MEADOW; continue; }
+      if (d < R - 1.6) w.ground[y * W + x] = G.DEEP;
       else if (d < R) w.ground[y * W + x] = G.WATER;
     }
+    island = { x: best.x, y: best.y };
   }
   // Strand an Wasserrändern
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -151,20 +172,6 @@ export function generate(seedStr) {
     }
   }
 
-  // Startplatz: offenes Gelände nahe der Mitte, links oder rechts vom Fluss
-  const side = rnd() < 0.5 ? -1 : 1;
-  let start = null, bestScore = -1;
-  for (let t = 0; t < 600; t++) {
-    const y = Math.floor(H * 0.3 + rnd() * H * 0.4);
-    const x = riverX[y] + side * (8 + Math.floor(rnd() * 10));
-    if (!w.inb(x - 6, y - 6) || !w.inb(x + 6, y + 6)) continue;
-    let ok = 0;
-    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
-      const g = w.g(x + dx, y + dy);
-      if (g === G.GRASS || g === G.MEADOW || g === G.FOREST) ok++;
-    }
-    if (ok > bestScore) { bestScore = ok; start = { x, y }; }
-  }
   // Lichtung freiräumen
   for (let dy = -5; dy <= 5; dy++) for (let dx = -6; dx <= 6; dx++) {
     const x = start.x + dx, y = start.y + dy;
@@ -187,8 +194,58 @@ export function generate(seedStr) {
   };
   sprinkle(7, 7, 13, () => ({ t: 'rock', size: 2 }));
   sprinkle(4, 6, 12, () => ({ t: 'bush', berries: true, regrow: 0 }));
+  // Lagerplätze fremder Stämme: drei an Land, einer auf der Insel
+  const sites = pickTribeSites(w, start, rnd, 3);
+  if (island) {
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = island.x + dx, y = island.y + dy; if (w.inb(x, y) && !w.isWater(x, y)) w.obj[w.i(x, y)] = null; }
+    sites.push({ x: island.x, y: island.y, island: true });
+  }
+  if (island) for (const [dx, dy] of [[2, 2], [-2, 2], [2, -2], [-2, -2], [3, 0], [-3, 0]]) {
+    const x = island.x + dx, y = island.y + dy;
+    if (w.inb(x, y) && !w.isWater(x, y) && !w.obj[w.i(x, y)] && Math.abs(dx) + Math.abs(dy) >= 3) { w.obj[w.i(x, y)] = { t: 'chest' }; break; }
+  }
+  sprinkleChests(w, rnd, [{ x: start.x, y: start.y, r: 16 }, ...sites.map((p) => ({ x: p.x, y: p.y, r: 7 }))], 14);
   w.touchAll();
-  return { world: w, start, riverX };
+  return { world: w, start, riverX, sites };
+}
+
+// Freie, per Land erreichbare Plätze für Stammeslager, weit weg vom Start und voneinander
+export function pickTribeSites(w, start, rnd, n, avoid = []) {
+  const sites = [];
+  const okArea = (cx, cy) => {
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (!w.inb(x, y)) return false;
+      const k = w.i(x, y), g = w.ground[k];
+      if (g === G.MOUNTAIN || g === G.BRIDGE || w.isWater(x, y) || w.bld[k] >= 0 || w.tstruct[k] >= 0) return false;
+    }
+    return true;
+  };
+  const minStart = Math.max(26, Math.round((w.w + w.h) * 0.2));
+  for (let t = 0; t < 3000 && sites.length < n; t++) {
+    const x = 6 + Math.floor(rnd() * (w.w - 12)), y = 6 + Math.floor(rnd() * (w.h - 12));
+    if (Math.abs(x - start.x) + Math.abs(y - start.y) < minStart) continue;
+    if (sites.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 24)) continue;
+    if (avoid.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 16)) continue;
+    if (!okArea(x, y)) continue;
+    if (!findPath(w, start.x, start.y, (xx, yy) => Math.abs(xx - x) <= 4 && Math.abs(yy - y) <= 4, x, y, 40000)) continue;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) { const xx = x + dx, yy = y + dy; if (w.inb(xx, yy) && !w.isWater(xx, yy)) { const k = w.i(xx, yy); if (w.obj[k]) w.obj[k] = null; if (w.ground[k] === G.FOREST) w.ground[k] = G.GRASS; } }
+    sites.push({ x, y });
+  }
+  return sites;
+}
+// Schatztruhen auf freiem Land, nicht zu nah an den Punkten in avoid
+export function sprinkleChests(w, rnd, avoid, n) {
+  let placed = 0;
+  for (let t = 0; t < 5000 && placed < n; t++) {
+    const x = 2 + Math.floor(rnd() * (w.w - 4)), y = 2 + Math.floor(rnd() * (w.h - 4));
+    if (!w.isFree(x, y)) continue;
+    if (avoid.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < (p.r || 14))) continue;
+    if (placed && avoid.length && rnd() < 0.2) continue;
+    w.obj[w.i(x, y)] = { t: 'chest' };
+    placed++;
+  }
+  return placed;
 }
 
 /* ---------- Wegsuche (A*, 8 Richtungen, keine Ecken abschneiden) ---------- */
@@ -217,22 +274,29 @@ class Heap {
   get size() { return this.a.length; }
 }
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+let POOL = null;
+function pool(N) {
+  if (!POOL || POOL.N !== N) POOL = { N, gs: new Float32Array(N), came: new Int32Array(N), stamp: new Uint32Array(N), closed: new Uint32Array(N), gen: 0 };
+  if (++POOL.gen > 0xfffffff0) { POOL.stamp.fill(0); POOL.closed.fill(0); POOL.gen = 1; }
+  return POOL;
+}
 
 // goal(x, y) → true am Ziel. (hx, hy) ist die Richtung für die Schätzung.
-export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 6000) {
+export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 8000, pass = null) {
   const W = w.w, N = w.w * w.h;
+  const ok = pass || ((x, y) => w.walkable(x, y));
   if (!w.inb(sx, sy)) return null;
-  const gs = new Float32Array(N).fill(Infinity), came = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  const P = pool(N), gen = P.gen, gs = P.gs, came = P.came, stamp = P.stamp, closed = P.closed;
   const h = (x, y) => { const dx = Math.abs(x - hx), dy = Math.abs(y - hy); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy); };
   const s = sy * W + sx;
-  gs[s] = 0;
+  gs[s] = 0; stamp[s] = gen; came[s] = -1;
   const open = new Heap();
   open.push(s, h(sx, sy));
   let n = 0;
   while (open.size && n++ < maxNodes) {
     const c = open.pop();
-    if (closed[c]) continue;
-    closed[c] = 1;
+    if (closed[c] === gen) continue;
+    closed[c] = gen;
     const cx = c % W, cy = (c / W) | 0;
     if (goal(cx, cy)) {
       const path = [];
@@ -242,13 +306,14 @@ export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 6000) {
     }
     for (const [dx, dy, cost] of DIRS8) {
       const nx = cx + dx, ny = cy + dy;
-      if (!w.walkable(nx, ny)) continue;
-      if (dx && dy && (!w.walkable(cx + dx, cy) || !w.walkable(cx, cy + dy))) continue;
+      if (!ok(nx, ny)) continue;
+      if (dx && dy && (!ok(cx + dx, cy) || !ok(cx, cy + dy))) continue;
       const nk = ny * W + nx;
-      if (closed[nk]) continue;
-      const tileCost = w.ground[nk] === G.PATH || w.ground[nk] === G.BRIDGE ? 0.6 : 1;
+      if (closed[nk] === gen) continue;
+      const gk = w.ground[nk];
+      const tileCost = gk === G.PATH || gk === G.BRIDGE ? 0.6 : gk === G.WATER || gk === G.DEEP ? 1.6 : 1;
       const ng = gs[c] + cost * tileCost;
-      if (ng < gs[nk]) { gs[nk] = ng; came[nk] = c; open.push(nk, ng + h(nx, ny) * 0.6); }
+      if (stamp[nk] !== gen || ng < gs[nk]) { gs[nk] = ng; stamp[nk] = gen; came[nk] = c; open.push(nk, ng + h(nx, ny) * 0.6); }
     }
   }
   return null;
