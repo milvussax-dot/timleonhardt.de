@@ -1,10 +1,17 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=12';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=12';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=13';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=13';
 
 export const CAMP_R = 8;        // so weit reicht das Land eines Stammes
-export const FIRST_RAID = 8;    // vorher greift niemand an
+export const FIRST_RAID = 10;   // vorher greift niemand an
+const RAID_CALM = 5;            // nach einem Überfall so viele Tage (plus 0–2) keiner mehr, egal von welchem Stamm
+const RAID_EVERY = 10;          // derselbe Stamm frühestens nach so vielen Tagen wieder (plus Weg / 30, plus 0–3)
+const RAID_MAX = 16;            // mehr Krieger schickt ein Stamm nie auf einmal
+const CAMP_EXTRA = 12;          // so viele Krieger mehr als zu Beginn passen ins Lager (wächst mit Tag und Heer)
+const BALANCE = 2;              // Stand der Spielbalance; ältere Spielstände werden beim Laden einmal angepasst
+const HUT_SPOTS = [[-5, -3], [4, -3], [-5, 2], [4, 2], [-1, -5], [-8, -1], [7, -1], [-4, 5], [3, 5], [-4, -7], [3, -7]];
+const ISLAND_HUT_SPOTS = [[-4, -1], [3, -1], [-1, -4], [-4, 1], [3, 1]];
 const ALARM_R = 10;             // kommen Soldaten so nah, verteidigt sich das Lager
 const REACH = 0.95, HIT_CD = 0.9;
 const RANKS = [2, 5, 9];        // Siege bis zum nächsten Rang
@@ -76,20 +83,52 @@ export const Realm = {
     const hall = { x: hx, y: hy, w: 3, h: 3 };
     mark(hall);
     for (let dx = -1; dx <= 1; dx++) { const x = hx + 1 + dx, y = hy + 3; if (w.inb(x, y) && w.obj[w.i(x, y)] && w.obj[w.i(x, y)].t !== 'chest') w.obj[w.i(x, y)] = null; }
-    const ccx = hx + 1, ccy = hy + 1, huts = [];
-    const spots = island ? [[-4, -1], [3, -1], [-1, -4], [-4, 1], [3, 1]] : [[-5, -3], [4, -3], [-5, 2], [4, 2], [-1, -5]];
-    for (const [ox, oy] of spots) {
-      if (huts.length >= (island ? 2 : 4)) break;
-      const x = ccx + ox, y = ccy + oy;
-      if (!fits(x, y, 2, 2)) continue;
-      const r = { x, y, w: 2, h: 2 }; mark(r); huts.push(r);
-    }
-    w.touchAll();
-    return {
-      key: def.key, name: def.name, color: def.color, atk: def.atk, hp: def.hp, grow: def.grow, cap: def.start + 8, cap0: def.start + 8, chiefDead: false, chiefOut: false,
-      cx: ccx, cy: ccy, hall, huts, island, warriors: def.start, acc: 0, discovered: false, defeated: false,
+    const t = {
+      key: def.key, name: def.name, color: def.color, atk: def.atk, hp: def.hp, grow: def.grow, cap: def.start + CAMP_EXTRA, cap0: def.start + CAMP_EXTRA, chiefDead: false, chiefOut: false,
+      cx: hx + 1, cy: hy + 1, hall, huts: [], island, warriors: def.start, acc: 0, discovered: false, defeated: false,
       raidIn: 1 + ti * 2 + Math.floor(rnd() * 3), raidAt: null, peaceUntil: 0, gifts: 0, raid: null,
     };
+    this.campHuts(t, ti, false);
+    w.touchAll();
+    return t;
+  },
+  // Hütten rund um die Halle (Land bis 7, Insel bis 3). `later`: nachträglich in einem laufenden Spiel,
+  // dann weder Wege, Truhen, eigenes Land noch Figuren überbauen.
+  campHuts(t, ti, later) {
+    const w = this.world, want = t.island ? 3 : 7;
+    const units = later ? [this.player, ...(this.settlers || []), ...(this.soldiers || []), ...(this.foes || [])].filter(Boolean) : [];
+    const near = (x, y) => this.buildings.some((b) => x >= b.x - 3 && x < b.x + b.w + 3 && y >= b.y - 3 && y < b.y + b.h + 3);
+    const ok = (x, y) => {
+      if (!w.inb(x, y) || w.isWater(x, y)) return false;
+      const k = w.i(x, y), gr = w.ground[k];
+      if (gr === G.MOUNTAIN || gr === G.BRIDGE || w.bld[k] >= 0 || w.tstruct[k] >= 0) return false;
+      return !later || (gr !== G.DIRT && gr !== G.PATH && w.land[k] !== 1 && !(w.obj[k] && w.obj[k].t === 'chest') && !near(x, y));
+    };
+    for (const [ox, oy] of t.island ? ISLAND_HUT_SPOTS : HUT_SPOTS) {
+      if (t.huts.length >= want) break;
+      const x = t.cx + ox, y = t.cy + oy;
+      if (!(ok(x, y) && ok(x + 1, y) && ok(x, y + 1) && ok(x + 1, y + 1))) continue;
+      if (units.some((u) => u.x > x - 0.6 && u.x < x + 2.6 && u.y > y - 0.6 && u.y < y + 2.6)) continue;
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        const k = w.i(x + dx, y + dy);
+        w.tstruct[k] = ti; w.obj[k] = null;
+        if (w.ground[k] === G.FOREST) w.ground[k] = G.GRASS;
+        if (later) w.touch(x + dx, y + dy);
+      }
+      t.huts.push({ x, y, w: 2, h: 2 });
+    }
+  },
+  // Spielstände von vor dem Umbau: größere Lager, ein paar Hütten mehr und erst einmal Ruhe
+  rebalance() {
+    const rnd = mulberry(hash(this.seed + ':umbau:' + this.day));
+    this.tribes.forEach((t, ti) => {
+      if (t.defeated) return;
+      t.cap0 = (t.cap0 || t.cap) + 8; t.cap += 8;
+      t.warriors += 6;
+      this.campHuts(t, ti, true);
+      if (!t.island) { t.raidAt = null; t.raidIn = Math.max(t.raidIn, 2 + Math.floor(rnd() * 4)); }
+    });
+    this.raidCalm = Math.max(this.raidCalm || 0, this.day + 3);
   },
   markCamps() {   // nach dem Laden: Hütten der Stämme blockieren wieder
     const w = this.world;
@@ -731,29 +770,36 @@ export const Realm = {
   campDoor(t) { return { x: t.hall.x + 1, y: t.hall.y + 3 }; },
   foesOf(ti) { let n = 0; for (const f of this.foes) if (f.tribe === ti) n++; return n; },
   realmNewDay() {
-    const army = this.soldiers.length;
+    const army = this.soldiers.length, due = [];
     this.tribes.forEach((t, ti) => {
       if (t.defeated) return;
       // Wettrüsten: je größer dein Heer und je später im Jahr, desto mehr Krieger
       t.cap0 = t.cap0 || t.cap;
-      t.cap = t.cap0 + Math.round(this.day * 0.8 + army * 0.5);
+      t.cap = t.cap0 + Math.round(this.day * 0.4 + army * 0.25);
       t.acc += t.grow * (1 + this.day / 20);
       while (t.acc >= 1) { t.acc--; if (t.warriors + this.foesOf(ti) < t.cap) t.warriors++; }
       if (t.island || this.day < FIRST_RAID || t.peaceUntil >= this.day) return;
       t.raidIn--;
-      if (t.raidIn <= 0) {   // weit entfernte Stämme kommen seltener
-        const hut = this.buildings.find((b) => b.type === 'hut') || this.buildings[0];
-        t.raidAt = (2 + this.rng() * 6) * SEC_PER_HOUR;
-        t.raidIn = 4 + Math.floor(Math.hypot(t.cx - hut.x, t.cy - hut.y) / 40) + Math.floor(this.rng() * 3);
-      }
+      if (t.raidIn <= 0) due.push(t);
     });
+    if (!due.length) return;
+    // höchstens ein Überfall auf einmal, danach einige Tage Ruhe; wer gerade nicht darf, wartet ein paar Tage
+    const busy = this.day < (this.raidCalm || 0) || this.tribes.some((t) => t.raid || t.raidAt != null) || this.foes.some((f) => f.mode === 'raid');
+    const pick = busy ? null : due[Math.floor(this.rng() * due.length)];
+    const hut = this.buildings.find((b) => b.type === 'hut') || this.buildings[0];
+    for (const t of due) {
+      if (t !== pick) { t.raidIn = 1 + Math.floor(this.rng() * 3); continue; }
+      t.raidAt = (2 + this.rng() * 6) * SEC_PER_HOUR;
+      t.raidIn = RAID_EVERY + Math.floor(Math.hypot(t.cx - hut.x, t.cy - hut.y) / 30) + Math.floor(this.rng() * 4);   // weit entfernte Stämme kommen seltener
+      this.raidCalm = this.day + RAID_CALM + Math.floor(this.rng() * 3);
+    }
   },
   launchRaid(t) {
     const ti = this.tribes.indexOf(t);
     const stores = this.buildings.filter((b) => b.type === 'storage' && b.built);
     if (!stores.length || t.raid) return false;
     const target = stores.sort((a, c) => Math.hypot(a.x - t.cx, a.y - t.cy) - Math.hypot(c.x - t.cx, c.y - t.cy))[0];
-    const n = Math.min(t.warriors - 3, 3 + Math.floor(Math.max(0, this.day - FIRST_RAID) * 0.5));
+    const n = Math.min(t.warriors - 3, RAID_MAX, 3 + Math.floor(Math.max(0, this.day - FIRST_RAID) * 0.4));
     if (n < 2) return false;
     const d = this.campDoor(t);
     const goal = nextToRect(target.x, target.y, target.w, target.h);
@@ -916,7 +962,14 @@ export const Realm = {
     });
     this.stats.conquered++;
     this.landDirty = true;
-    for (const o of this.tribes) if (!o.defeated && o !== t) { o.warriors += 4; o.raidIn = Math.min(o.raidIn, 2); }
+    // die anderen rüsten auf, der nächste Nachbar sinnt auf Rache (aber auch er wartet die Ruhezeit ab)
+    let next = null;
+    for (const o of this.tribes) {
+      if (o.defeated || o === t) continue;
+      o.warriors += 4;
+      if (!o.island && (!next || Math.hypot(o.cx - t.cx, o.cy - t.cy) < Math.hypot(next.cx - t.cx, next.cy - t.cy))) next = o;
+    }
+    if (next) next.raidIn = Math.min(next.raidIn, 3);
     const msg = `Du hast das Lager der ${t.name} erobert! Beute: ${coins} Münzen, ${Object.keys(loot).map((k) => `${loot[k]} ${ITEMS[k].name}`).join(', ')}.`;
     this.toast(`Lager der ${t.name} erobert!`);
     this.sound('quest');
@@ -1027,8 +1080,8 @@ export const Realm = {
     if (t.raid) return 'Ihre Krieger sind gerade auf Raubzug.';
     if (t.peaceUntil >= this.day) return `Friedlich bis Tag ${t.peaceUntil}.`;
     if (this.day < FIRST_RAID - 1) return `Vor Tag ${FIRST_RAID} greifen sie nicht an. Mit jeder Jahreszeit werden ihre Krieger stärker.`;
-    if (t.raidAt != null || t.raidIn <= 1) return 'Sie planen bald einen Überfall.';
-    return 'Sie überfallen ab und zu dein Lager.';
+    if (t.raidAt != null || (t.raidIn <= 1 && this.day + 1 >= (this.raidCalm || 0))) return 'Sie planen bald einen Überfall.';
+    return 'Sie überfallen ab und zu dein Lager, aber nie mehrere Stämme zugleich.';
   },
 
   /* ---------- Schatztruhen ---------- */
@@ -1053,6 +1106,7 @@ export const Realm = {
   saveRealm() {
     return {
       tribes: this.tribes.map((t, i) => ({ ...t, raid: null, warriors: t.warriors + this.foesOf(i) })),
+      raidCalm: this.raidCalm || 0, bal: BALANCE,
       soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
@@ -1069,5 +1123,7 @@ export const Realm = {
       return { ...s, kind: 'soldier', type: s.type || 'sword', drill: s.drill || 1, post: s.post || null, state: s.post ? 'move' : inside ? 'garrison' : 'return', path: null, pi: 0, cd: 0, think: 0, campaign: null, foe: null, walkT: 0, facing: 2 };
     });
     this.markCamps();
+    this.raidCalm = d.raidCalm || 0;
+    if ((d.bal || 0) < BALANCE) this.rebalance();
   },
 };

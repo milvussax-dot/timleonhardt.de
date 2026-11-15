@@ -1,10 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=12';
-import { Renderer } from './render.js?v=12';
-import { cellRand } from './world.js?v=12';
-import { Sound } from './audio.js?v=12';
+import { Game } from './sim.js?v=13';
+import { Renderer } from './render.js?v=13';
+import { cellRand } from './world.js?v=13';
+import { Sound } from './audio.js?v=13';
+import { FIRST_RAID } from './realm.js?v=13';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=12';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=13';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -249,7 +250,8 @@ function showHelp(first) {
         <li>Mit einem Boot aus der Werft kommen alle übers Wasser, auch zur Insel im See.</li>
       </ul></div>
       <div class="box"><h3>Stämme und Soldaten</h3><ul>
-        <li>Ab Tag 8 überfallen die Stämme dein Lager, rauben Vorräte und zünden Gebäude an. Mit jeder Jahreszeit werden ihre Krieger stärker, und je größer dein Heer, desto mehr rüsten sie auf. Ein Geschenk bringt 8 Tage Ruhe.</li>
+        <li>Ab Tag ${FIRST_RAID} überfällt ab und zu ein Stamm dein Lager, raubt Vorräte und zündet ein Gebäude an. Es kommt immer nur ein Stamm, danach ist einige Tage Ruhe. Ein Geschenk bringt 8 Tage Frieden.</li>
+        <li>Die Lager der Stämme sind groß, für eine Eroberung brauchst du ein starkes Heer. Mit jeder Jahreszeit werden ihre Krieger stärker, und je größer dein Heer, desto mehr rüsten sie auf.</li>
         <li>Jedes Lager hat einen Häuptling und Bogenschützen. Erst wenn der Häuptling gefallen ist, gehört dir das Lager.</li>
         <li>Erzmine, Köhlerei, Schmelze und Waffenschmiede machen Schwerter, der Bogenmacher Bögen. Die Kaserne bildet daraus mit freien Siedlern Schwertkämpfer und Bogenschützen aus.</li>
         <li>Bau die Kaserne aus, dann werden alle ihre Soldaten stärker. Die Ausbildung kostet dann aber mehr.</li>

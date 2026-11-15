@@ -114,15 +114,15 @@ export const SHIPYARD_LEVELS = [
 export const WARSHIP = { atk: 5, range: 7.5, cd: 2.2, speed: 2.2 };
 // hp und atk gelten für einfache Krieger am Anfang; mit jeder Jahreszeit werden sie stärker (Stufe 1 bis 4)
 export const TRIBES = [
-  { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.8, hp: 13, start: 12, grow: 1.2 },
-  { key: 'moorhueter',   name: 'Moorhüter',    color: '#8a5bd6', atk: 2.6, hp: 14, start: 11, grow: 1.1 },
-  { key: 'steinbrecher', name: 'Steinbrecher', color: '#d08a2b', atk: 3.0, hp: 15, start: 13, grow: 1.3 },
-  { key: 'dornkrallen',  name: 'Dornkrallen',  color: '#c84f9a', atk: 2.9, hp: 13, start: 12, grow: 1.2 },
-  { key: 'sonnenspeere', name: 'Sonnenspeere', color: '#d4a82a', atk: 3.0, hp: 14, start: 13, grow: 1.3 },
-  { key: 'aschenwoelfe', name: 'Aschenwölfe',  color: '#7a8290', atk: 3.1, hp: 14, start: 12, grow: 1.4 },
-  { key: 'lehmfaeuste',  name: 'Lehmfäuste',   color: '#9a6234', atk: 2.7, hp: 16, start: 13, grow: 1.2 },
-  { key: 'nachtlaeufer', name: 'Nachtläufer',  color: '#3a4a8a', atk: 3.2, hp: 13, start: 12, grow: 1.4 },
-  { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.6, hp: 13, start: 12, grow: 1.0 },
+  { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.8, hp: 13, start: 18, grow: 1.2 },
+  { key: 'moorhueter',   name: 'Moorhüter',    color: '#8a5bd6', atk: 2.6, hp: 14, start: 17, grow: 1.1 },
+  { key: 'steinbrecher', name: 'Steinbrecher', color: '#d08a2b', atk: 3.0, hp: 15, start: 19, grow: 1.3 },
+  { key: 'dornkrallen',  name: 'Dornkrallen',  color: '#c84f9a', atk: 2.9, hp: 13, start: 18, grow: 1.2 },
+  { key: 'sonnenspeere', name: 'Sonnenspeere', color: '#d4a82a', atk: 3.0, hp: 14, start: 19, grow: 1.3 },
+  { key: 'aschenwoelfe', name: 'Aschenwölfe',  color: '#7a8290', atk: 3.1, hp: 14, start: 18, grow: 1.4 },
+  { key: 'lehmfaeuste',  name: 'Lehmfäuste',   color: '#9a6234', atk: 2.7, hp: 16, start: 19, grow: 1.2 },
+  { key: 'nachtlaeufer', name: 'Nachtläufer',  color: '#3a4a8a', atk: 3.2, hp: 13, start: 18, grow: 1.4 },
+  { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.6, hp: 13, start: 16, grow: 1.0 },
 ];
 export const FOE = { raidSpeed: 2.8, archerShare: 0.3, archerRange: 4, chiefHp: 70, chiefHpTier: 25, chiefAtk: 5, chiefAtkTier: 1.2 };
 
