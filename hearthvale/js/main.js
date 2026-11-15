@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=17';
-import { Renderer } from './render.js?v=17';
-import { cellRand } from './world.js?v=17';
-import { Sound } from './audio.js?v=17';
-import { FIRST_RAID } from './realm.js?v=17';
+import { Game } from './sim.js?v=18';
+import { Renderer } from './render.js?v=18';
+import { cellRand } from './world.js?v=18';
+import { Sound } from './audio.js?v=18';
+import { FIRST_RAID } from './realm.js?v=18';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=17';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=18';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -246,7 +246,7 @@ function showHelp(first) {
         <li>Jede Arbeit kostet Energie. Tipp auf die Energieanzeige, um etwas zu essen.</li>
       </ul></div>
       <div class="box"><h3>Deine Siedlung</h3><ul>
-        <li>Unter <b>Bauen</b> stellst du Gebäude auf. Freie Siedler bauen sie und arbeiten danach darin.</li>
+        <li>Unter <b>Bauen</b> stellst du Gebäude auf. Freie Siedler bauen sie und arbeiten danach darin. Beim Bauen kannst du die Karte ziehen oder auf die Minikarte klicken, um weiter weg zu bauen.</li>
         <li>Jeder Siedler isst abends 1 Portion. Satte Siedler holen neue ins Tal, solange es Betten gibt.</li>
         <li>Siedler ohne Arbeitsplatz werden <b>Träger</b>: Sie holen die Ware an den Gebäuden ab und bringen Zutaten in die Werkstätten. So können die Arbeiter weiterarbeiten.</li>
         <li>Auf gebauten <b>Wegen</b> laufen alle schneller, Träger noch einmal deutlich. Verbinde Lager und Werkstätten mit Wegen.</li>
@@ -583,7 +583,7 @@ function renderPanel() {
     p.innerHTML = `<div class="head"><h2>Bauen</h2><button class="x" data-close aria-label="Schließen">×</button></div>
       <p>Wähl ein Gebäude und klick auf die Karte. Freie Siedler bauen es auf.</p>
       <div class="blist">${BUILD_GROUPS.map(([title, list]) => `<h3>${esc(title)}</h3>` + list.map((k) => { const d = BUILDINGS[k]; return `<button class="bitem" data-build="${k}" type="button"${buildType === k ? ' style="border-color:var(--honey)"' : ''}><b>${d.name}</b><span class="cost">${costChips(d.cost, game)}</span><span class="desc">${esc(d.desc)}</span></button>`; }).join('')).join('')}</div>`;
-    p.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => { buildType = b.dataset.build; hint(`${BUILDINGS[buildType].name}: Klick auf die Karte, um es zu platzieren. Esc bricht ab.`); renderPanel(); }));
+    p.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => { buildType = b.dataset.build; hint(`${BUILDINGS[buildType].name}: Klick auf die Karte, um es zu platzieren. Zieh die Karte, um weiter weg zu bauen. Esc bricht ab.`); renderPanel(); }));
   } else if (panelMode === 'tribe') {
     renderTribe(p);
     return;
@@ -941,7 +941,7 @@ function onKey(e) {
   else if (k === 'b') setTool(tool === 'build' ? 'hand' : 'build');
   else if (k === 't') setTool(tool === 'troops' ? 'hand' : 'troops');
   else if (k === 'escape') {
-    if (look) { setLook(false); return; }
+    if (look && !buildType) { setLook(false); return; }   // beim Bauen bricht Esc zuerst das Bauen ab
     if (troopMode) { if (sel.size) { sel.clear(); renderPanel(); } else setTool('hand'); return; }
     if (buildType) { buildType = null; ghost = null; renderPanel(); } else { if (panelMode === 'build') setTool('hand'); closePanel(); }
   }
@@ -1050,7 +1050,7 @@ function boot() {
   const cv = $('world');
   cv.addEventListener('pointermove', onPointerMove);
   let down = null;
-  const canPan = () => troopMode || tool === 'hand';   // beim Bauen bleibt Ziehen für die Vorschau
+  const canPan = () => true;   // Ziehen verschiebt die Karte immer, auch beim Bauen; ein kurzer Klick setzt das Gebäude
   cv.addEventListener('pointerdown', (e) => {
     down = { x: e.clientX, y: e.clientY, shift: e.shiftKey, cx: R.cam.x, cy: R.cam.y, drag: false };
     if (canPan() && cv.setPointerCapture) try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
