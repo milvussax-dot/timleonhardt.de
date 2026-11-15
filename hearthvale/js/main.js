@@ -1,14 +1,17 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=6';
-import { Renderer } from './render.js?v=6';
-import { cellRand } from './world.js?v=6';
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=6';
+import { Game } from './sim.js?v=7';
+import { Renderer } from './render.js?v=7';
+import { cellRand } from './world.js?v=7';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=7';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
 const INDEX_KEY = 'hearthvale.saves';      // Liste aller Spielstände
 const SLOT_KEY = 'hearthvale.slot.';
 const MAX_SLOTS = 5;
+// Einmal-Code: nur der Hash steht hier, der Code selbst nicht. Gilt ein einziges Mal pro Browser.
+const GIFT_HASH = '85d5518962cbbcec9d9dae0f15d1722133e47de1e366cb86f3c1ab3a56072768', GIFT_KEY = 'hearthvale.gift', GIFT_COINS = 100000;
+const cleanSaveName = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 30);
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (inner) => `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true">${inner}</svg>`;
@@ -81,7 +84,18 @@ function readIndex() { try { const a = JSON.parse(localStorage.getItem(INDEX_KEY
 function writeIndex(list) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(list)); return true; } catch (e) { return false; } }
 const slotList = () => readIndex().sort((a, b) => (b.updated || 0) - (a.updated || 0));
 const newSlotId = () => 's' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
-function metaOf(g, id) { return { id, mode: g.mode, week: g.week, day: g.day, value: g.talwert().total, settlers: g.settlers.length, updated: Date.now() }; }
+function metaOf(g, id) { return { id, name: g.name || '', mode: g.mode, week: g.week, day: g.day, value: g.talwert().total, settlers: g.settlers.length, updated: Date.now() }; }
+// Namen ändern, auch für Spielstände, die gerade nicht geladen sind
+function renameSlot(id, name) {
+  name = cleanSaveName(name);
+  try {
+    const raw = localStorage.getItem(SLOT_KEY + id);
+    if (raw) { const d = JSON.parse(raw); d.name = name; localStorage.setItem(SLOT_KEY + id, JSON.stringify(d)); }
+    writeIndex(readIndex().map((m) => (m.id === id ? { ...m, name } : m)));
+  } catch (e) { return false; }
+  if (game && slot === id) game.name = name;
+  return true;
+}
 function loadSlot(id) { try { const s = localStorage.getItem(SLOT_KEY + id); return s ? Game.load(s) : null; } catch (e) { return null; } }
 function deleteSlot(id) { try { localStorage.removeItem(SLOT_KEY + id); } catch (e) { /* egal */ } writeIndex(readIndex().filter((m) => m.id !== id)); }
 // Der Spielstand der alten Version (nur einer) wird zum ersten Eintrag der Liste. Geht etwas schief, bleibt er unangetastet.
@@ -105,7 +119,9 @@ function saveNow() {
     writeIndex([...readIndex().filter((m) => m.id !== slot), metaOf(game, slot)]);
   } catch (e) { game.toast('Speichern hat nicht geklappt, der Speicher ist voll. Lösch einen alten Spielstand.'); }
 }
-function slotTitle(m) { return m.mode === 'week' ? `Tal der Woche · KW ${Number(String(m.week || '').split('-w')[1]) || '?'}` : 'Zufälliges Tal'; }
+function slotKind(m) { return m.mode === 'week' ? `Tal der Woche · KW ${Number(String(m.week || '').split('-w')[1]) || '?'}` : 'Zufälliges Tal'; }
+function slotTitle(m) { return m.name || slotKind(m); }
+let renaming = null;
 function whenText(t) {
   const d = new Date(t), now = new Date(), hm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   if (d.toDateString() === now.toDateString()) return `heute, ${hm}`;
@@ -117,19 +133,22 @@ let confirmDel = null;
 
 function showStart() {
   active = false;
+  if (renaming && !readIndex().some((m) => m.id === renaming)) renaming = null;
   const list = slotList();
   const wk = isoWeek();
   const full = list.length >= MAX_SLOTS;
   openModal(() => `
     <h1>Hearthvale</h1>
     <p class="lead">Ein Tal, ein Jahr. Bestell Felder, bau eine Siedlung, in der deine Siedler selbst arbeiten, und erkunde das große Tal. Dort leben fremde Stämme, die dich überfallen. Bilde Soldaten aus, bau Boote und erobere ihre Lager. Nach ${YEAR_DAYS} Tagen zählt der Talwert.</p>
-    <p class="muted"><b>Neu:</b> größeres Tal mit Nebel und Insel, eigenes Land mit Grenzen, vier Stämme, Schwertkämpfer und Bogenschützen, Kaserne und Werft zum Ausbauen, Kriegsschiffe, Wachtürme, Häuser bis zum Stadthaus, Schatztruhen und ${QUESTS.length} Ziele.</p>
+    <p class="muted"><b>Neu:</b> riesiges Tal mit Nebel, Gebirgen und Insel, sechs Stämme, Schwertkämpfer und Bogenschützen, die du selbst steuerst, Kaserne und Werft zum Ausbauen, Kriegsschiffe, Markt zum Einkaufen, Spielstände mit eigenem Namen und ${QUESTS.length} Ziele.</p>
     ${list.length ? `<div class="box" style="margin-top:12px"><h3>Deine Spielstände</h3><div class="slots">${list.map((m, i) => `
-      <div class="slot">
-        <div class="slot-info"><b>${esc(slotTitle(m))}</b><span class="muted">Tag ${Number(m.day) || 1} · ${Number(m.settlers) || 0} Siedler · Talwert ${Number(m.value || 0).toLocaleString('de-DE')} · ${esc(whenText(m.updated || Date.now()))}</span></div>
-        <div class="slot-btns"><button class="btn ${i === 0 ? 'primary' : ''}" data-load="${esc(m.id)}" type="button">Weiterspielen</button><button class="btn small" data-del="${esc(m.id)}" type="button">${confirmDel === m.id ? 'Wirklich löschen?' : 'Löschen'}</button></div>
+      <div class="slot">${renaming === m.id ? `
+        <div class="namerow slot-name"><input data-name-in="${esc(m.id)}" maxlength="30" placeholder="${esc(slotKind(m))}" value="${esc(m.name || '')}" aria-label="Name des Spielstands"><button class="btn primary" data-name-ok="${esc(m.id)}" type="button">OK</button></div>` : `
+        <div class="slot-info"><b>${esc(slotTitle(m))}</b><span class="muted">${m.name ? `${esc(slotKind(m))} · ` : ''}Tag ${Number(m.day) || 1} · ${Number(m.settlers) || 0} Siedler · Talwert ${Number(m.value || 0).toLocaleString('de-DE')} · ${esc(whenText(m.updated || Date.now()))}</span></div>
+        <div class="slot-btns"><button class="btn ${i === 0 ? 'primary' : ''}" data-load="${esc(m.id)}" type="button">Weiterspielen</button><button class="btn small" data-ren="${esc(m.id)}" type="button">Umbenennen</button><button class="btn small" data-del="${esc(m.id)}" type="button">${confirmDel === m.id ? 'Wirklich löschen?' : 'Löschen'}</button></div>`}
       </div>`).join('')}</div></div>` : ''}
     <div class="box" style="margin-top:12px"><h3>Neues Tal anfangen</h3>
+      ${full ? '' : '<div class="namerow"><input id="newName" maxlength="30" placeholder="Name für das neue Tal (freiwillig)" aria-label="Name für das neue Tal"></div>'}
       <div class="actions" style="margin-top:4px">
         <button class="btn ${list.length ? '' : 'primary'}" data-act="week" type="button" ${full ? 'disabled' : ''}>Tal der Woche (KW ${wk.n})</button>
         <button class="btn" data-act="random" type="button" ${full ? 'disabled' : ''}>Zufälliges Tal</button>
@@ -152,12 +171,23 @@ function showStart() {
       if (!g) { b.textContent = 'Spielstand beschädigt'; b.disabled = true; return; }
       confirmDel = null; game = g; slot = b.dataset.load; startGame();
     }));
+    card.querySelectorAll('[data-ren]').forEach((b) => b.addEventListener('click', () => { renaming = b.dataset.ren; confirmDel = null; showStart(); const inp = $('card').querySelector('[data-name-in]'); if (inp) { inp.focus(); inp.select(); } }));
+    card.querySelectorAll('[data-name-ok]').forEach((b) => {
+      const inp = card.querySelector(`[data-name-in="${b.dataset.nameOk}"]`);
+      const done = () => { renameSlot(b.dataset.nameOk, inp.value); renaming = null; showStart(); };
+      b.addEventListener('click', done);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { renaming = null; showStart(); } });
+    });
     card.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.del;
       if (confirmDel !== id) { confirmDel = id; showStart(); return; }
       confirmDel = null; deleteSlot(id); showStart();
     }));
-    const startNew = (make) => { if (slotList().length >= MAX_SLOTS) return; confirmDel = null; game = make(); slot = newSlotId(); startGame(true); };
+    const startNew = (make) => {
+      if (slotList().length >= MAX_SLOTS) return;
+      const nm = card.querySelector('#newName');
+      confirmDel = null; renaming = null; game = make(); game.name = cleanSaveName(nm && nm.value); slot = newSlotId(); startGame(true);
+    };
     act('week', () => startNew(() => Game.create(`hearthvale:${wk.key}`, 'week', wk.key)));
     act('random', () => startNew(() => Game.create(`zufall:${Date.now()}:${Math.random()}`, 'random', null)));
     const rer = () => { const box = card.querySelector('#lbBox'); if (box) { box.innerHTML = lbHtml(LB.tab); bindLb(box, rer); } };
@@ -225,20 +255,59 @@ function showHelp(first) {
     <div class="actions"><button class="btn primary" data-act="ok" type="button">Los geht's</button></div>`, (card) => card.querySelector('[data-act=ok]').addEventListener('click', closeModal));
 }
 
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+async function redeemCode(raw) {
+  const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!code) return 'Gib einen Code ein.';
+  let used = null;
+  try { used = localStorage.getItem(GIFT_KEY); } catch (e) { /* egal */ }
+  let h = '';
+  try { h = await sha256('hearthvale:' + code); } catch (e) { return 'Das geht hier gerade nicht.'; }
+  if (h !== GIFT_HASH) return 'Diesen Code gibt es nicht.';
+  if (used) return 'Dieser Code wurde schon eingelöst.';
+  game.coins += GIFT_COINS; game.gift = true;
+  try { localStorage.setItem(GIFT_KEY, String(Date.now())); } catch (e) { /* egal */ }
+  saveNow(); renderHud();
+  return null;
+}
 function showMenu() {
   openModal(`
     <h2>Menü</h2>
-    <p>Tag ${game.day} · ${game.mode === 'week' ? `Tal der Woche (${esc(game.week)})` : 'Zufälliges Tal'} · Talwert ${game.talwert().total.toLocaleString('de-DE')}</p>
+    <p>${esc(game.name || (game.mode === 'week' ? `Tal der Woche (${game.week})` : 'Zufälliges Tal'))} · Tag ${game.day} · Talwert ${game.talwert().total.toLocaleString('de-DE')}</p>
     <p class="muted">Dein Spiel wird jeden Abend und zwischendurch automatisch gespeichert.</p>
     <div class="actions">
       <button class="btn primary" data-act="back" type="button">Weiterspielen</button>
       <button class="btn" data-act="save" type="button">Jetzt speichern</button>
       <button class="btn" data-act="start" type="button">Startbildschirm</button>
       <a class="btn" href="../">Alle Spiele</a>
+    </div>
+    <div class="box" style="margin-top:12px"><h3>Name dieses Spielstands</h3>
+      <div class="namerow"><input id="saveName" maxlength="30" placeholder="${esc(game.mode === 'week' ? `Tal der Woche (${game.week})` : 'Zufälliges Tal')}" value="${esc(game.name || '')}"><button class="btn" data-act="rename" type="button">Speichern</button></div>
+    </div>
+    <div class="box" style="margin-top:12px"><h3>Code einlösen</h3>
+      <div class="namerow"><input id="giftIn" maxlength="20" autocomplete="off" placeholder="Code"><button class="btn" data-act="redeem" type="button">Einlösen</button></div>
+      <p class="muted" id="giftMsg"></p>
     </div>`, (card) => {
     card.querySelector('[data-act=back]').addEventListener('click', closeModal);
     card.querySelector('[data-act=save]').addEventListener('click', (e) => { saveNow(); e.target.textContent = 'Gespeichert'; });
     card.querySelector('[data-act=start]').addEventListener('click', () => { saveNow(); showStart(); });
+    const nameIn = card.querySelector('#saveName'), renameBtn = card.querySelector('[data-act=rename]');
+    const doRename = () => { game.name = cleanSaveName(nameIn.value); nameIn.value = game.name; saveNow(); renameBtn.textContent = 'Gespeichert'; };
+    renameBtn.addEventListener('click', doRename);
+    nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(); } });
+    const giftIn = card.querySelector('#giftIn'), giftBtn = card.querySelector('[data-act=redeem]'), giftMsg = card.querySelector('#giftMsg');
+    const doRedeem = async () => {
+      giftBtn.disabled = true;
+      const err = await redeemCode(giftIn.value);
+      giftBtn.disabled = false;
+      giftMsg.textContent = err || `${GIFT_COINS.toLocaleString('de-DE')} Münzen gutgeschrieben. Dieses Tal zählt jetzt nicht mehr für die Bestenliste.`;
+      if (!err) { giftIn.value = ''; game.toast(`+${GIFT_COINS.toLocaleString('de-DE')} Münzen`); }
+    };
+    giftBtn.addEventListener('click', doRedeem);
+    giftIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doRedeem(); } });
   });
 }
 
@@ -267,7 +336,7 @@ function onDayEnd(sum) {
 }
 
 function showYearEnd(score) {
-  const ranked = game.mode === 'week';
+  const ranked = game.mode === 'week' && !game.gift;
   LB.tab = ranked ? 'week' : 'all';
   const render = () => `
     <h2>Ein Jahr in ${game.mode === 'week' ? 'deinem Tal der Woche' : 'deinem Tal'}</h2>
@@ -275,7 +344,7 @@ function showYearEnd(score) {
     <p class="muted">Talwert nach ${YEAR_DAYS} Tagen</p>
     <dl><dt>Münzen</dt><dd>${Math.round(score.coins).toLocaleString('de-DE')}</dd><dt>Vorräte</dt><dd>${Math.round(score.stock).toLocaleString('de-DE')}</dd><dt>Gebäude und Wege</dt><dd>${Math.round(score.buildings).toLocaleString('de-DE')}</dd><dt>Siedler (${game.settlers.length})</dt><dd>${Math.round(score.settlers).toLocaleString('de-DE')}</dd><dt>Soldaten, Festungen, Boote</dt><dd>${Math.round(score.military || 0).toLocaleString('de-DE')}</dd></dl>
     <p class="muted">Ziele erreicht: ${game.quests.length} von ${QUESTS.length} · erkundet: ${Math.round(game.explored() * 100)} % · Stämme besiegt: ${game.tribes.filter((t) => t.defeated).length} von ${game.tribes.length}</p>
-    ${ranked ? (game.submitted ? '<p>Du stehst in der Bestenliste.</p>' : ONLINE ? `<p>Trag dich in die Bestenliste ein:</p><div class="namerow"><input id="nameIn" maxlength="16" autocomplete="nickname" placeholder="Dein Name" value="${esc(TB.getName())}"><button class="btn primary" data-act="submit" type="button">Eintragen</button></div><p class="muted" id="subMsg"></p>` : '') : '<p class="muted">Im zufälligen Tal gibt es keine Bestenliste. Spiel das Tal der Woche, um dich zu vergleichen.</p>'}
+    ${ranked ? (game.submitted ? '<p>Du stehst in der Bestenliste.</p>' : ONLINE ? `<p>Trag dich in die Bestenliste ein:</p><div class="namerow"><input id="nameIn" maxlength="16" autocomplete="nickname" placeholder="Dein Name" value="${esc(TB.getName())}"><button class="btn primary" data-act="submit" type="button">Eintragen</button></div><p class="muted" id="subMsg"></p>` : '') : `<p class="muted">${game.gift ? 'In diesem Tal wurde ein Code eingelöst, darum zählt es nicht für die Bestenliste.' : 'Im zufälligen Tal gibt es keine Bestenliste. Spiel das Tal der Woche, um dich zu vergleichen.'}</p>`}
     <div class="lb" id="lbBox" style="margin-top:10px">${lbHtml(LB.tab)}</div>
     <div class="actions"><button class="btn ${ranked && !game.submitted ? '' : 'primary'}" data-act="cont" type="button">Weiterspielen</button><button class="btn" data-act="new" type="button">Startbildschirm</button></div>`;
   const bind = (card) => {

@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=6';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=6';
-import { Realm } from './realm.js?v=6';
+} from './data.js?v=7';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=7';
+import { Realm } from './realm.js?v=7';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 // Bäume (1–20), Felsen (21–22) und Sträucher (23–27) passen in ein Byte
@@ -914,7 +914,7 @@ export class Game {
     const objs = [], tr = new Uint8Array(w.w * w.h);
     w.obj.forEach((o, k) => { if (!o) return; const c = objCode(o); if (c) tr[k] = c; else objs.push([k, o]); });
     return JSON.stringify({
-      v: 2, w: w.w, h: w.h, seed: this.seed, mode: this.mode, week: this.week, day: this.day, time: this.time, weather: this.weather,
+      v: 2, w: w.w, h: w.h, seed: this.seed, mode: this.mode, week: this.week, name: this.name || '', gift: !!this.gift, day: this.day, time: this.time, weather: this.weather,
       coins: this.coins, energy: this.energy, water: this.water, stock: this.stock, seedKind: this.seedKind, autoSell: this.autoSell,
       yearScore: this.yearScore, submitted: this.submitted, fed: this.fed, starving: this.starving, totals: this.totals, nextId: this.nextId,
       ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs, tr: enc(tr),
@@ -938,6 +938,7 @@ export class Game {
     for (const [k, o] of d.objs) w.obj[k] = o;
     Object.assign(g, {
       world: w, seed: d.seed, mode: d.mode, week: d.week, day: d.day, time: d.time, weather: d.weather, coins: d.coins, energy: d.energy, water: d.water,
+      name: typeof d.name === 'string' ? d.name : '', gift: !!d.gift,
       stock: d.stock, seedKind: d.seedKind || 'wheat', autoSell: d.autoSell || {}, yearScore: d.yearScore, submitted: d.submitted, fed: d.fed !== false, starving: d.starving || 0,
       totals: d.totals || { harvested: 0, produced: 0, sold: 0 }, nextId: d.nextId, buildings: [], settlers: [], seenCount: 0, fogVer: 0,
     });
