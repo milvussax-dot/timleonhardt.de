@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=5';
-import { cellRand } from './world.js?v=5';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=6';
+import { cellRand } from './world.js?v=6';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -46,8 +46,10 @@ export class Renderer {
   }
   follow(game, dt) {
     const p = game.player, w = game.world, S = this.S;
-    const k = Math.min(1, dt * 6);
-    this.cam.x += (p.x - this.cam.x) * k; this.cam.y += (p.y - this.cam.y) * k;
+    if (!this.free) {   // im Truppen-Modus steht die Kamera frei
+      const k = Math.min(1, dt * 6);
+      this.cam.x += (p.x - this.cam.x) * k; this.cam.y += (p.y - this.cam.y) * k;
+    }
     const hw = this.W / 2 / S, hh = this.H / 2 / S;
     this.cam.x = hw * 2 >= w.w ? w.w / 2 : Math.max(hw, Math.min(w.w - hw, this.cam.x));
     this.cam.y = hh * 2 >= w.h ? w.h / 2 : Math.max(hh, Math.min(w.h - hh, this.cam.y));
@@ -59,8 +61,13 @@ export class Renderer {
     const key = (cy << 8) | cx;
     let ch = this.chunks.get(key);
     const w = game.world;
+    if (ch) { this.chunks.delete(key); this.chunks.set(key, ch); }   // zuletzt benutzt nach hinten
     if (!ch || w.dirty.has(key)) {
-      if (!ch) { ch = document.createElement('canvas'); ch.width = ch.height = 16 * TILE; this.chunks.set(key, ch); }
+      if (!ch) {   // höchstens 64 Kacheln im Speicher, die älteste wird wiederverwendet
+        if (this.chunks.size >= 64) { const old = this.chunks.keys().next().value; ch = this.chunks.get(old); this.chunks.delete(old); }
+        else { ch = document.createElement('canvas'); ch.width = ch.height = 16 * TILE; }
+        this.chunks.set(key, ch);
+      }
       const g = ch.getContext('2d');
       g.clearRect(0, 0, ch.width, ch.height);
       for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
@@ -569,6 +576,10 @@ export class Renderer {
         this.person(g, p, S, { player: true, shirt: '#c0392b', hat: '#6b4a2b', working: !!p.action, progress: p.action ? p.action.t / p.action.total : null, boat: w.isWater(Math.floor(p.x), Math.floor(p.y)), t });
       } else if (d.k === 'm') {
         const s = d.s, archer = s.type === 'archer', drill = s.drill || 1, crest = ['#c0392b', '#c0392b', '#3d85c6', '#f2b84b'][drill];
+        if (ui.sel && ui.sel.has(s.id)) {
+          const X = ox + (s.x + (cellRand(s.id, 1, 5) - 0.5) * 0.35) * S, Y = oy + (s.y + (cellRand(s.id, 2, 5) - 0.5) * 0.25 + 0.2) * S;
+          g.strokeStyle = '#ffd25a'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(X, Y, S * 0.3, S * 0.12, 0, 0, 7); g.stroke();
+        }
         this.person(g, s, S, { shirt: archer ? '#3f6f3a' : '#3a5f9a', helmet: !archer, hood: archer ? '#2f5a2c' : null, crest, shield: !archer && drill >= 2 ? crest : null, weapon: archer ? 'bow' : 'sword', swing: s.swing > 0 ? s.swing : 0, rank: s.rank, hp: s.hp / game.maxHp(s), hurt: s.hurtT > 0, ox: (cellRand(s.id, 1, 5) - 0.5) * 0.35, oy: (cellRand(s.id, 2, 5) - 0.5) * 0.25, boat: w.isWater(Math.floor(s.x), Math.floor(s.y)), t });
       } else if (d.k === 'ship') {
         const sh = d.sh;
@@ -582,6 +593,11 @@ export class Renderer {
       else if (d.k === 'idle') { d.e.walkT = 0; this.person(g, d.e, S * 0.9, { shirt: d.tr.color, band: shade(d.tr.color, -0.3), weapon: 'spear', t }); }
     }
     for (const sh of game.shots || []) this.shot(g, sh, ox, oy, S);
+    if (ui.sel && ui.sel.size) this.posts(g, game, ui.sel, ox, oy, S, t);
+    if (ui.ping) {
+      const age = t - ui.ping.t;
+      if (age < 0.8) { g.strokeStyle = ui.ping.attack ? `rgba(255,110,90,${1 - age / 0.8})` : `rgba(255,220,110,${1 - age / 0.8})`; g.lineWidth = 3; g.beginPath(); g.ellipse(ox + (ui.ping.x + 0.5) * S, oy + (ui.ping.y + 0.6) * S, S * (0.2 + age * 0.9), S * (0.08 + age * 0.35), 0, 0, 7); g.stroke(); }
+    }
     // Grenzen: dein Land gestrichelt hell, Stämme in ihrer Farbe
     this.drawBorders(g, game, ox, oy, S, x0, x1, y0, y1);
     if (ui.ghost || ui.buildMode) {   // beim Bauen: fremdes und freies Land abdunkeln
@@ -627,6 +643,21 @@ export class Renderer {
       }
     }
     this.drawFog(g, game, ox, oy, S);
+    if (ui.box) { const b = ui.box; g.fillStyle = 'rgba(255,210,90,0.12)'; g.strokeStyle = 'rgba(255,210,90,0.9)'; g.lineWidth = 1.5; g.fillRect(b.x, b.y, b.w, b.h); g.strokeRect(b.x, b.y, b.w, b.h); }
+  }
+  // kleine Fähnchen an den Plätzen, die ausgewählte Soldaten halten sollen
+  posts(g, game, sel, ox, oy, S, t) {
+    const done = new Set();
+    for (const s of game.soldiers) {
+      if (!sel.has(s.id) || !s.post) continue;
+      const k = s.post.y * 4096 + s.post.x;
+      if (done.has(k)) continue;
+      done.add(k);
+      const X = ox + (s.post.x + 0.5) * S, Y = oy + (s.post.y + 0.75) * S;
+      g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.ellipse(X, Y, S * 0.12, S * 0.05, 0, 0, 7); g.fill();
+      g.strokeStyle = '#5a4030'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(X, Y); g.lineTo(X, Y - S * 0.42); g.stroke();
+      g.fillStyle = '#ffd25a'; g.beginPath(); g.moveTo(X, Y - S * 0.42); g.lineTo(X + S * 0.2, Y - S * 0.34 + Math.sin(t * 4 + X) * 1.5); g.lineTo(X, Y - S * 0.26); g.fill();
+    }
   }
   drawBorders(g, game, ox, oy, S, x0, x1, y0, y1) {
     const b = game.borders;

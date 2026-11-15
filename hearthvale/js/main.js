@@ -1,7 +1,8 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=5';
-import { Renderer } from './render.js?v=5';
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=5';
+import { Game } from './sim.js?v=6';
+import { Renderer } from './render.js?v=6';
+import { cellRand } from './world.js?v=6';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -38,7 +39,10 @@ const chip = (k, n, miss) => `<span class="chip${miss ? ' miss' : ''}">${icon(k)
 const costChips = (cost, game) => Object.keys(cost || {}).map((k) => chip(k, cost[k], game && (game.stock[k] || 0) < cost[k])).join('');
 
 let game = null, R = null, speed = 1, tool = 'hand', buildType = null, ghost = null, hover = null, selected = null, panelMode = null, selTribe = null, attackW = { sword: 99, archer: 99 };
-let modalOpen = false, hudT = 0, panelT = 0, saveT = 45, lastStock = {}, touchGhost = null;
+let modalOpen = false, hudT = 0, panelT = 0, saveT = 45, lastStock = {}, touchGhost = null, marketTab = 'sell';
+let troopMode = false, box = null, ping = null;   // Truppen steuern: freie Kamera, Auswahl, Rahmen, Zielmarker
+const sel = new Set();
+const HUD_ITEMS = STOCK_ORDER.filter((k) => k !== 'sword' && k !== 'bow');   // Waffen stehen bei den Truppen und in der Kaserne
 let active = false;   // erst gespeichert wird, wenn wirklich gespielt wird (nicht die Vorschau hinter dem Startbildschirm)
 const keys = new Set();
 
@@ -307,6 +311,31 @@ function showQuests() {
     <div class="actions"><button class="btn primary" data-act="ok" type="button">Weiter</button></div>`, (card) => card.querySelector('[data-act=ok]').addEventListener('click', closeModal));
 }
 
+/* ---------- Truppen ---------- */
+function showTroops() {
+  const ar = game.soldiers.filter((s) => s.type === 'archer').length, sw = game.soldiers.length - ar;
+  const places = game.buildings.filter((b) => b.type === 'barracks' || b.type === 'tower' || b.type === 'fort');
+  const row = (name, list) => { const a = list.filter((s) => s.type === 'archer').length; return `<li><span class="q">⚑</span><span>${esc(name)}</span><span class="pair">${icon('sword')}${list.length - a} ${icon('bow')}${a}</span></li>`; };
+  const seenNames = {};
+  let rows = places.map((b) => { const nm = game.levelName(b), n = (seenNames[nm] = (seenNames[nm] || 0) + 1), many = places.filter((o) => game.levelName(o) === nm).length > 1; return row(many ? `${nm} ${n}` : nm, game.soldiers.filter((s) => s.home === b.id && s.campaign == null)); }).join('');
+  game.tribes.forEach((t, i) => { const list = game.soldiers.filter((s) => s.campaign === i); if (list.length) rows += row(`Feldzug gegen die ${t.name}`, list); });
+  const training = game.buildings.filter((b) => b.type === 'barracks' && b.training).length;
+  const veterans = game.soldiers.filter((s) => s.rank > 0).length;
+  openModal(`
+    <h2>Deine Truppen</h2>
+    <div class="grid2">
+      <div class="box"><h3>${icon('sword')} Schwertkämpfer</h3><div class="big">${sw}</div><p class="muted">Halten viel aus und kämpfen Mann gegen Mann.</p></div>
+      <div class="box"><h3>${icon('bow')} Bogenschützen</h3><div class="big">${ar}</div><p class="muted">Schießen aus der Ferne und von Wachtürmen.</p></div>
+    </div>
+    ${rows ? `<h3 class="mh">Wo sie sind</h3><ul class="qlist">${rows}</ul>` : '<p>Noch keine Kaserne. Du findest sie unter Bauen bei Militär &amp; Wasser.</p>'}
+    <p class="muted">${training ? `${training} in Ausbildung · ` : ''}${veterans ? `${veterans} mit Rangstreifen · ` : ''}Flotte: ${esc(game.fleetText())}${game.boats ? ` (${game.boatSeats()} Plätze)` : ''} · Waffen im Lager: ${game.stock.sword || 0} Schwerter, ${game.stock.bow || 0} Bögen</p>
+    <div class="actions"><button class="btn primary" data-act="ok" type="button">Weiter</button>${game.soldiers.length ? '<button class="btn" data-act="steer" type="button">Truppen steuern</button>' : ''}</div>`, (card) => {
+    card.querySelector('[data-act=ok]').addEventListener('click', closeModal);
+    const st = card.querySelector('[data-act=steer]');
+    if (st) st.addEventListener('click', () => { closeModal(); setTool('troops'); });
+  });
+}
+
 /* ---------- HUD ---------- */
 function renderHud(force) {
   if (!game) return;
@@ -317,9 +346,16 @@ function renderHud(force) {
   $('hEnergyBar').style.width = `${(game.energy / MAX_ENERGY) * 100}%`;
   $('hEnergy').classList.toggle('low', game.energy < 20);
   $('hPeople').textContent = `${game.workers()}/${game.settlers.length} · ${game.beds} Betten`;
-  const mil = game.soldiers.length || game.boats || game.buildings.some((b) => b.type === 'barracks');
-  $('hMil').hidden = !mil;
-  if (mil) $('hMilTxt').textContent = `${game.soldiers.length}${game.boats ? ` · ${game.boats} ${game.boats === 1 ? 'Boot' : 'Boote'}` : ''}`;
+  const tp = $('troops'), mil = game.soldiers.length || game.boats || game.buildings.some((b) => b.type === 'barracks');
+  tp.hidden = !mil;
+  if (mil) {
+    const ar = game.soldiers.filter((s) => s.type === 'archer').length, sw = game.soldiers.length - ar, away = game.soldiers.filter((s) => s.campaign != null).length;
+    const key = [sw, ar, game.boats, away].join('|');
+    if (tp.dataset.k !== key) {
+      tp.dataset.k = key;
+      tp.innerHTML = `<b>Truppen</b><span title="Schwertkämpfer">${icon('sword')}${sw}<i class="lbl"> Schwertkämpfer</i></span><span title="Bogenschützen">${icon('bow')}${ar}<i class="lbl"> Bogenschützen</i></span>${game.boats ? `<span title="Boote">${icon('boat')}${game.boats}<i class="lbl"> ${game.boats === 1 ? 'Boot' : 'Boote'}</i></span>` : ''}${away ? `<span class="away">${away} auf Feldzug</span>` : ''}`;
+    }
+  }
   const qs = game.openQuests(2), gq = $('goals');
   const qKey = qs.map((q) => q.id).join(',') + game.quests.length;
   if (gq.dataset.k !== qKey) { gq.dataset.k = qKey; gq.innerHTML = qs.length ? `<b>Ziele</b>${qs.map((q) => `<span>${icon('flag')}${esc(q.text)} <i>+${q.reward}</i></span>`).join('')}` : '<b>Ziele</b><span>Alle Ziele erreicht!</span>'; }
@@ -328,7 +364,7 @@ function renderHud(force) {
   al.hidden = !raid;
   if (raid) { al.textContent = `⚔ ${game.alert.text}!`; al.style.borderColor = game.alert.color; }
   const res = $('res');
-  if (force || !res.children.length) res.innerHTML = STOCK_ORDER.map((k) => `<span class="chip" data-k="${k}" title="${ITEMS[k].name}">${icon(k)}<b>0</b></span>`).join('');
+  if (force || !res.children.length) res.innerHTML = HUD_ITEMS.map((k) => `<span class="chip" data-k="${k}" title="${ITEMS[k].name}">${icon(k)}<b>0</b></span>`).join('');
   for (const el of res.children) {
     const k = el.dataset.k, n = game.stock[k] || 0;
     el.querySelector('b').textContent = n;
@@ -398,6 +434,8 @@ function describe(tx, ty) {
 /* ---------- Werkzeuge und Tempo ---------- */
 function setTool(t) {
   tool = t;
+  if (troopMode && t !== 'troops') { troopMode = false; R.free = false; sel.clear(); box = null; if (panelMode === 'troops') closePanel(); }
+  if (t === 'troops' && !troopMode) { troopMode = true; R.free = true; if (game) game.player.move = { x: 0, y: 0 }; panelMode = 'troops'; selected = null; renderPanel(); }
   if (t !== 'build') { buildType = null; ghost = null; if (panelMode === 'build') closePanel(); }
   document.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('sel', b.dataset.tool === t));
   if (t === 'build') openBuildMenu();
@@ -418,6 +456,7 @@ function renderPanel() {
   if (!panelMode) { p.hidden = true; return; }
   if (p.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // nicht beim Tippen stören
   p.hidden = false;
+  p.classList.toggle('troopmode', panelMode === 'troops');
   if (panelMode === 'build') {
     p.innerHTML = `<div class="head"><h2>Bauen</h2><button class="x" data-close aria-label="Schließen">×</button></div>
       <p>Wähl ein Gebäude und klick auf die Karte. Freie Siedler bauen es auf.</p>
@@ -425,6 +464,9 @@ function renderPanel() {
     p.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => { buildType = b.dataset.build; hint(`${BUILDINGS[buildType].name}: Klick auf die Karte, um es zu platzieren. Esc bricht ab.`); renderPanel(); }));
   } else if (panelMode === 'tribe') {
     renderTribe(p);
+    return;
+  } else if (panelMode === 'troops') {
+    renderTroopPanel(p);
     return;
   } else {
     const b = selected;
@@ -452,20 +494,26 @@ function renderPanel() {
       if (b.type === 'farm') body += `<div class="row"><span>Felder</span><b>${b.fields.length} / ${game.fieldsOf(b)}</b></div>${game.season === 3 ? '<p>Im Winter ruht der Hof.</p>' : ''}`;
       if (b.type === 'house') body += `<div class="row"><span>Bewohner</span><b>${game.settlers.filter((s) => s.home === b.id).length} / ${game.bedsOf(b)}</b></div>`;
       if (b.type === 'barracks') {
-        const mine = game.soldiers.filter((s) => s.home === b.id), away = game.soldiers.filter((s) => s.campaign != null).length;
-        const ord = game.ordersOf(b), L = BARRACKS_LEVELS[b.level || 1];
-        const nAr = mine.filter((s) => s.type === 'archer').length, nSw = mine.length - nAr;
-        body += `<div class="row"><span>Soldaten hier</span><b>${mine.length} / ${game.soldierCap(b)}</b></div>`;
-        body += `<div class="row"><span>Schwertkämpfer · Bogenschützen</span><b>${nSw} · ${nAr}</b></div>`;
-        if (L.hp) body += `<p>${esc(L.name)}: Soldaten von hier haben +${L.hp} Leben und schlagen härter zu.</p>`;
-        if (b.training) { const pct = Math.min(100, Math.round(b.training.t / TRAIN_TIME * 100)); body += `<div class="row"><span>Ausbildung: ${UNITS[b.training.type || 'sword'].name}</span><b>${pct} %</b></div><div class="prog"><i style="width:${pct}%"></i></div>`; }
+        const mine = game.soldiers.filter((s) => s.home === b.id), lvl = b.level || 1, L = BARRACKS_LEVELS[lvl], ord = game.ordersOf(b);
+        const away = game.soldiers.filter((s) => s.campaign != null).length, elsewhere = game.soldiers.filter((s) => s.home !== b.id).length;
+        body += `<div class="troopbox">${['sword', 'archer'].map((type) => {
+          const U = UNITS[type], n = mine.filter((s) => (s.type === 'archer') === (type === 'archer')).length;
+          const hp = Math.round(U.hp + L.hp * (type === 'archer' ? 0.75 : 1)), atk = U.atk + L.atk * (type === 'archer' ? 0.7 : 1);
+          return `<div class="tb"><span class="tbicon">${icon(U.weapon)}</span><span class="tbname">${U.plural}</span><b class="tbn">${n}</b><span class="tbstat">Leben ${hp} · Kraft ${atk.toFixed(1).replace('.', ',')}${type === 'archer' ? ' · schießt' : ''}</span></div>`;
+        }).join('')}</div>`;
+        body += `<div class="row"><span>Platz</span><b>${mine.length} / ${game.soldierCap(b)}</b></div>`;
+        if (elsewhere) body += `<div class="row"><span>Woanders (Türme, Festungen, Feldzug)</span><b>${elsewhere}</b></div>`;
+        body += `<div class="row"><span>Stufe</span><b>${lvl} von 3 · ${esc(L.name)}</b></div>`;
+        if (b.training) { const pct = Math.min(100, Math.round(b.training.t / TRAIN_TIME * 100)); body += `<div class="row"><span>In Ausbildung: ${UNITS[b.training.type || 'sword'].name}</span><b>${pct} %</b></div><div class="prog"><i style="width:${pct}%"></i></div>`; }
+        body += '<h3 class="sub">Ausbilden</h3>';
         for (const type of ['sword', 'archer']) {
           const U = UNITS[type];
-          body += `<div class="sellrow"><span class="n">${icon(U.weapon)}<span>${U.plural} · bestellt ${ord[type] || 0}</span></span><span class="b"><button class="btn small" data-order="${type}" data-n="1" type="button">+1</button><button class="btn small" data-order="${type}" data-n="5" type="button">+5</button>${ord[type] ? `<button class="btn small" data-order="${type}" data-n="0" type="button" aria-label="Abbestellen">×</button>` : ''}</span><span class="auto">Je Soldat: ${costChips(game.trainCost(b, type), game)} und 1 freier Siedler</span></div>`;
+          body += `<div class="orow"><span class="n">${icon(U.weapon)} ${U.name}</span><span class="stepper"><button class="btn small" data-order="${type}" data-n="-1" type="button" aria-label="Weniger">−</button><b>${ord[type] || 0}</b><button class="btn small" data-order="${type}" data-n="1" type="button" aria-label="Mehr">+</button><button class="btn small" data-order="${type}" data-n="5" type="button">+5</button></span><span class="auto">Je Soldat ${costChips(game.trainCost(b, type), game)} und 1 freier Siedler</span></div>`;
         }
         if ((ord.sword || ord.archer) && !b.training && b.why) body += `<p>${esc(b.why)}</p>`;
-        body += '<p>Schwertkämpfer halten viel aus. Bogenschützen schießen aus der Ferne und von Wachtürmen herunter. Soldaten wohnen hier, essen mit und verteidigen dein Land. Angreifen: Klick auf ein Stammeslager.</p>';
+        body += `<div class="row"><span>Waffen im Lager</span><span class="cost">${chip('sword', game.stock.sword || 0)}${chip('bow', game.stock.bow || 0)}</span></div>`;
         if (away) body += `<div class="row"><span>Auf Feldzug</span><b>${away}</b></div><div class="actions"><button class="btn small" data-act="recallAll" type="button">Alle zurückrufen</button></div>`;
+        body += `<div class="actions">${mine.some((s) => s.state !== 'garrison') ? '<button class="btn small" data-act="steer" type="button">Diese Truppen steuern</button>' : ''}<button class="btn small" data-act="troops" type="button">Alle Truppen ansehen</button></div>`;
       }
       if (b.type === 'tower' || b.type === 'fort') {
         const crew = game.soldiers.filter((s) => s.home === b.id);
@@ -486,15 +534,21 @@ function renderPanel() {
         body += `<div class="row"><span>Vorräte</span><span></span></div><div class="cost" style="display:flex;flex-wrap:wrap;gap:4px">${[...STOCK_ORDER, 'seed_wheat', 'seed_carrot', 'seed_pumpkin'].map((k) => `<span class="chip" title="${ITEMS[k].name}">${icon(k)}${game.stock[k] || 0}</span>`).join('')}</div>
           <div class="actions"><button class="btn" data-act="eat" type="button">Etwas essen</button></div>`;
       }
-      if (b.type === 'market') {
+      if (b.type === 'market') body += `<div class="mtabs"><button class="btn small${marketTab === 'sell' ? ' on' : ''}" data-mtab="sell" type="button">Verkaufen</button><button class="btn small${marketTab === 'buy' ? ' on' : ''}" data-mtab="buy" type="button">Kaufen</button></div>`;
+      if (b.type === 'market' && marketTab === 'buy') {
+        body += `<p>Hier kaufst du jede Ware mit Münzen. Kaufen kostet rund die Hälfte mehr, als Verkaufen bringt. Du hast ${game.coins.toLocaleString('de-DE')} Münzen.</p>`;
+        body += [...STOCK_ORDER, 'seed_wheat', 'seed_carrot', 'seed_pumpkin'].map((k) => {
+          const pr = game.buyPrice(k), can = Math.floor(game.coins / pr);
+          return `<div class="sellrow"><span class="n">${icon(k)}<span>${ITEMS[k].name} · ${game.stock[k] || 0}</span></span><span class="b"><span class="chip">${icon('coin')}${pr}</span><button class="btn small" data-buy="${k}" data-n="1" type="button" ${can >= 1 ? '' : 'disabled'}>+1</button><button class="btn small" data-buy="${k}" data-n="10" type="button" ${can >= 10 ? '' : 'disabled'}>+10</button><button class="btn small" data-buy="${k}" data-n="50" type="button" ${can >= 50 ? '' : 'disabled'}>+50</button></span></div>`;
+        }).join('');
+      }
+      if (b.type === 'market' && marketTab === 'sell') {
         body += `<div class="row"><b>Verkaufen</b><span class="muted" style="color:var(--muted)">Preis je Stück</span></div>`;
         body += STOCK_ORDER.map((k) => {
           const n = game.stock[k] || 0, auto = game.autoSell[k];
           return `<div class="sellrow"><span class="n">${icon(k)}<span>${ITEMS[k].name} · ${n}</span></span><span class="b"><span class="chip">${icon('coin')}${ITEMS[k].price}</span><button class="btn small" data-sell="${k}" data-n="1" ${n ? '' : 'disabled'}>1</button><button class="btn small" data-sell="${k}" data-n="10" ${n >= 10 ? '' : 'disabled'}>10</button><button class="btn small" data-sell="${k}" data-n="all" ${n ? '' : 'disabled'}>Alle</button></span>
             <label class="auto"><input type="checkbox" data-auto="${k}" ${auto != null ? 'checked' : ''}> jeden Abend verkaufen, behalten: <input type="number" min="0" max="999" data-keep="${k}" value="${auto != null ? auto : 20}"></label></div>`;
         }).join('');
-        body += `<div class="row" style="margin-top:8px"><b>Saatgut kaufen</b><span></span></div>`;
-        body += ['seed_wheat', 'seed_carrot', 'seed_pumpkin'].map((k) => `<div class="sellrow"><span class="n">${icon(k)}<span>${ITEMS[k].name} · ${game.stock[k] || 0}</span></span><span class="b"><span class="chip">${icon('coin')}${ITEMS[k].price}</span><button class="btn small" data-buy="${k}" data-n="1" ${game.coins >= ITEMS[k].price ? '' : 'disabled'}>1</button><button class="btn small" data-buy="${k}" data-n="5" ${game.coins >= ITEMS[k].price * 5 ? '' : 'disabled'}>5</button></span></div>`).join('');
       }
     }
     if (b.built && def.job) body += `<div class="actions"><button class="btn small" data-act="pause" type="button">${b.paused ? 'Weiterarbeiten' : 'Arbeit pausieren'}</button></div>${b.paused ? '<p>Pausiert. Der Arbeiter wartet an der Tür.</p>' : ''}`;
@@ -506,18 +560,107 @@ function renderPanel() {
     on('[data-act=sleep]', () => { game.sleep(); closePanel(); });
     on('[data-act=pause]', () => { b.paused = !b.paused; renderPanel(); });
     on('[data-act=upgrade]', () => { const err = game.startUpgrade(b); game.toast(err || 'Ausbau geplant. Freie Siedler bauen ihn.'); renderHud(); renderPanel(); });
-    on('[data-order]', (e) => { const type = e.currentTarget.dataset.order, n = Number(e.currentTarget.dataset.n), ord = game.ordersOf(b); ord[type] = n ? (ord[type] || 0) + n : 0; renderPanel(); });
+    on('[data-order]', (e) => { const type = e.currentTarget.dataset.order, n = Number(e.currentTarget.dataset.n), ord = game.ordersOf(b); ord[type] = Math.max(0, (ord[type] || 0) + n); renderPanel(); });
+    on('[data-act=troops]', () => showTroops());
+    on('[data-act=steer]', () => { const ids = game.soldiers.filter((s) => s.home === b.id && s.state !== 'garrison').map((s) => s.id); setTool('troops'); sel.clear(); ids.forEach((id) => sel.add(id)); renderPanel(); });
     on('[data-seed]', (e) => { game.seedKind = e.currentTarget.dataset.seed; renderPanel(); });
     on('[data-boat]', (e) => { const n = Number(e.currentTarget.dataset.boat); b.orders = n ? (b.orders || 0) + n : 0; renderPanel(); });
     on('[data-act=recallAll]', () => { let n = 0; game.tribes.forEach((t, i) => { n += game.recall(i); }); game.toast(n ? `${n} Soldaten kehren zurück.` : 'Niemand ist unterwegs.'); renderPanel(); });
     on('[data-act=eat]', () => { game.toast(game.eat()); renderHud(); renderPanel(); });
     on('[data-act=demolish]', () => { if (!confirmDemolish) { confirmDemolish = true; renderPanel(); return; } confirmDemolish = false; const err = game.demolish(b); if (err) game.toast(err); closePanel(); });
     on('[data-sell]', (e) => { const k = e.currentTarget.dataset.sell, n = e.currentTarget.dataset.n === 'all' ? game.stock[k] : Number(e.currentTarget.dataset.n); const got = game.sell(k, n); if (got) game.toast(`${n} ${ITEMS[k].name} für ${got} Münzen verkauft`); renderHud(); renderPanel(); });
-    on('[data-buy]', (e) => { const k = e.currentTarget.dataset.buy, n = Number(e.currentTarget.dataset.n); if (game.buy(k, n)) game.toast(`${n} ${ITEMS[k].name} gekauft`); renderHud(); renderPanel(); });
+    on('[data-buy]', (e) => { const k = e.currentTarget.dataset.buy, n = Number(e.currentTarget.dataset.n), cost = n * game.buyPrice(k); game.toast(game.buy(k, n) ? `${n} ${ITEMS[k].name} für ${cost} Münzen gekauft` : 'Dafür reichen die Münzen nicht.'); renderHud(); renderPanel(); });
+    on('[data-mtab]', (e) => { marketTab = e.currentTarget.dataset.mtab; renderPanel(); });
     p.querySelectorAll('[data-auto]').forEach((cb) => cb.addEventListener('change', () => { const k = cb.dataset.auto, keep = Number(p.querySelector(`[data-keep="${k}"]`).value) || 0; if (cb.checked) game.autoSell[k] = keep; else delete game.autoSell[k]; }));
     p.querySelectorAll('[data-keep]').forEach((inp) => inp.addEventListener('change', () => { const k = inp.dataset.keep; if (game.autoSell[k] != null) game.autoSell[k] = Math.max(0, Number(inp.value) || 0); inp.blur(); }));
   }
   p.querySelector('[data-close]').addEventListener('click', () => { if (panelMode === 'build') setTool('hand'); closePanel(); });
+}
+/* ---------- Truppen steuern ---------- */
+function selList() {
+  const out = [];
+  for (const id of [...sel]) { const s = game.soldiers.find((x) => x.id === id); if (s && s.state !== 'garrison') out.push(s); else sel.delete(id); }
+  return out;
+}
+// Soldat oder Krieger unter dem Zeiger (mit demselben Versatz wie beim Zeichnen)
+function pickUnit(list, fx, fy, salt) {
+  let best = null, bd = 0.6;
+  for (const u of list) {
+    const ux = u.x + (cellRand(u.id, 1, salt) - 0.5) * 0.35, uy = u.y + (cellRand(u.id, 2, salt) - 0.5) * 0.25 - 0.3;
+    const d = Math.hypot(ux - fx, uy - fy);
+    if (d < bd) { bd = d; best = u; }
+  }
+  return best;
+}
+const visibleSoldiers = () => game.soldiers.filter((s) => s.state !== 'garrison');
+function troopHint(t) {
+  const s = pickUnit(visibleSoldiers(), t.fx, t.fy, 5);
+  if (s) return `${UNITS[s.type || 'sword'].name} · Leben ${Math.ceil(s.hp)}/${Math.round(game.maxHp(s))}${s.rank ? ` · Rang ${s.rank}` : ''} · ${sel.has(s.id) ? 'ausgewählt, tippen zum Abwählen' : 'tippen zum Auswählen'}`;
+  if (!sel.size) return 'Tipp auf Soldaten, um sie auszuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.';
+  const f = pickUnit(game.foes, t.fx, t.fy, 6);
+  if (f) return `Angreifen: Krieger der ${game.tribes[f.tribe].name}`;
+  const w = game.world;
+  if (!w.inb(t.x, t.y)) return '';
+  const k = w.i(t.x, t.y);
+  if (w.tstruct[k] >= 0 && w.seen[k]) return `Lager der ${game.tribes[w.tstruct[k]].name} angreifen`;
+  return `${sel.size === 1 ? 'Hierhin schicken' : `${sel.size} hierhin schicken`} und die Stellung halten`;
+}
+function troopTap(e) {
+  const t = R.screenToTile(e.clientX, e.clientY), now = performance.now() / 1000;
+  const hit = pickUnit(visibleSoldiers(), t.fx, t.fy, 5);
+  if (hit) { if (sel.has(hit.id)) sel.delete(hit.id); else sel.add(hit.id); renderPanel(); hint(troopHint(t)); return; }
+  const list = selList();
+  if (!list.length) { hint('Tipp zuerst auf Soldaten, um sie auszuwählen.'); return; }
+  const foe = pickUnit(game.foes, t.fx, t.fy, 6);
+  if (foe) {
+    game.orderAttackFoe(list, foe);
+    ping = { x: Math.floor(foe.x), y: Math.floor(foe.y), t: now, attack: true };
+    game.toast(list.length === 1 ? 'Dein Soldat greift an.' : `${list.length} Soldaten greifen an.`);
+    renderPanel(); return;
+  }
+  const w = game.world;
+  if (!w.inb(t.x, t.y)) return;
+  const k = w.i(t.x, t.y);
+  if (w.tstruct[k] >= 0 && w.seen[k]) {
+    const err = game.attackTribe(w.tstruct[k], null, list);
+    if (err) game.toast(err); else ping = { x: t.x, y: t.y, t: now, attack: true };
+    renderPanel(); return;
+  }
+  const err = game.orderMove(list, t.x, t.y);
+  if (err) { game.toast(err); return; }
+  ping = { x: t.x, y: t.y, t: now };
+  renderPanel();
+}
+function selectBox(b) {
+  const a = R.screenToTile(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1)), c = R.screenToTile(Math.max(b.x0, b.x1), Math.max(b.y0, b.y1));
+  sel.clear();
+  for (const s of visibleSoldiers()) {
+    const ux = s.x + (cellRand(s.id, 1, 5) - 0.5) * 0.35, uy = s.y + (cellRand(s.id, 2, 5) - 0.5) * 0.25 - 0.3;
+    if (ux >= a.fx - 0.3 && ux <= c.fx + 0.3 && uy >= a.fy - 0.4 && uy <= c.fy + 0.4) sel.add(s.id);
+  }
+  renderPanel();
+}
+function renderTroopPanel(p) {
+  const list = selList(), ar = list.filter((s) => s.type === 'archer').length, sw = list.length - ar, all = visibleSoldiers();
+  const count = (fn) => list.filter(fn).length;
+  const states = [['halten Stellung', count((s) => s.state === 'hold')], ['unterwegs', count((s) => ['move', 'march', 'return', 'toGarrison'].includes(s.state))], ['kämpfen', count((s) => s.state === 'fight')], ['in der Kaserne', count((s) => s.state === 'home')]].filter((x) => x[1]);
+  let body = '';
+  if (list.length) body += `<p class="selsum">${sw} Schwertkämpfer · ${ar} Bogenschützen ausgewählt</p><div class="troopbox">${[['sword', sw], ['archer', ar]].map(([type, n]) => `<div class="tb"><span class="tbicon">${icon(UNITS[type].weapon)}</span><span class="tbname">${UNITS[type].plural}</span><b class="tbn">${n}</b><span class="tbstat">ausgewählt</span></div>`).join('')}</div>${states.length ? `<p>${states.map(([txt, n]) => `${n} ${txt}`).join(' · ')}</p>` : ''}`;
+  else body += `<p>${all.length ? 'Noch niemand ausgewählt.' : 'Du hast noch keine Soldaten. Bilde in der Kaserne welche aus.'}</p>`;
+  if (all.length) body += `<div class="actions"><button class="btn small" data-pick="all" type="button">Alle (${all.length})</button><button class="btn small" data-pick="sword" type="button">${icon('sword')} Schwertkämpfer</button><button class="btn small" data-pick="archer" type="button">${icon('bow')} Bogenschützen</button>${list.length ? '<button class="btn small" data-pick="none" type="button">Keine</button>' : ''}</div>`;
+  if (list.length) body += '<div class="actions"><button class="btn small" data-act="find" type="button">Zu ihnen springen</button><button class="btn small" data-act="release" type="button">Zurück nach Hause</button></div>';
+  body += '<ul class="tips"><li>Tipp auf Soldaten, um sie aus- oder abzuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.</li><li>Dann tipp auf die Karte: Sie gehen hin und halten dort die Stellung, auch gegen Überfälle.</li><li>Tipp auf einen Krieger oder ein Stammeslager: Angriff.</li><li>Ziehen oder WASD verschiebt die Ansicht, die Minikarte springt hin. Esc oder die Hand beendet das Steuern.</li></ul>';
+  p.innerHTML = `<div class="head"><h2>Truppen steuern</h2><button class="x" data-close aria-label="Schließen">×</button></div>${body}`;
+  const on = (q, fn) => p.querySelectorAll(q).forEach((el) => el.addEventListener('click', fn));
+  on('[data-pick]', (e) => {
+    const k = e.currentTarget.dataset.pick;
+    sel.clear();
+    if (k !== 'none') for (const s of all) if (k === 'all' || (k === 'archer') === (s.type === 'archer')) sel.add(s.id);
+    renderPanel();
+  });
+  on('[data-act=find]', () => { const l = selList(); if (!l.length) return; R.cam.x = l.reduce((a, s) => a + s.x, 0) / l.length; R.cam.y = l.reduce((a, s) => a + s.y, 0) / l.length; });
+  on('[data-act=release]', () => { const l = selList(); game.orderRelease(l); game.toast(l.length === 1 ? 'Der Soldat geht nach Hause.' : `${l.length} Soldaten gehen nach Hause.`); sel.clear(); renderPanel(); });
+  p.querySelector('[data-close]').addEventListener('click', () => setTool('hand'));
 }
 function openTribe(i) { panelMode = 'tribe'; selTribe = i; selected = null; buildType = null; ghost = null; attackW = { sword: 99, archer: 99 }; renderPanel(); }
 // grobe Kampfkraft: Leben mal Schaden pro Sekunde
@@ -577,10 +720,11 @@ function onPointerMove(e) {
   const t = R.screenToTile(e.clientX, e.clientY);
   hover = { x: t.x, y: t.y };
   if (buildType && e.pointerType !== 'touch') ghost = ghostAt(t.fx, t.fy);
-  hint(describe(t.x, t.y));
+  hint(troopMode ? troopHint(t) : describe(t.x, t.y));
 }
 function onTap(e) {
   if (!game || modalOpen) return;
+  if (troopMode) { troopTap(e); return; }
   const t = R.screenToTile(e.clientX, e.clientY);
   hover = { x: t.x, y: t.y };
   if (buildType) {
@@ -606,6 +750,7 @@ function updateMove() {
   if (keys.has('d') || keys.has('arrowright')) x++;
   if (keys.has('w') || keys.has('arrowup')) y--;
   if (keys.has('s') || keys.has('arrowdown')) y++;
+  if (troopMode) { game.player.move = { x: 0, y: 0 }; return; }   // im Truppen-Modus verschieben die Tasten die Ansicht
   game.player.move = { x, y };
   if (x || y) { game.player.path = null; game.player.pending = null; }
 }
@@ -615,10 +760,14 @@ function onKey(e) {
   if (modalOpen) { if (k === 'enter') { const b = $('card').querySelector('.btn.primary'); if (b) { e.preventDefault(); b.click(); } } return; }
   if (!game) return;
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { e.preventDefault(); keys.add(k); updateMove(); return; }
-  if (k === 'e') { const p = game.player, d = [[0, -1], [1, 0], [0, 1], [-1, 0]][p.facing || 2]; const r = game.interact(Math.floor(p.x) + d[0], Math.floor(p.y) + d[1], tool); if (r && r.open) openBuilding(r.open); else if (r && r.tribe != null) openTribe(r.tribe); else if (r && r.msg) game.toast(r.msg); return; }
+  if (k === 'e' && !troopMode) { const p = game.player, d = [[0, -1], [1, 0], [0, 1], [-1, 0]][p.facing || 2]; const r = game.interact(Math.floor(p.x) + d[0], Math.floor(p.y) + d[1], tool); if (r && r.open) openBuilding(r.open); else if (r && r.tribe != null) openTribe(r.tribe); else if (r && r.msg) game.toast(r.msg); return; }
   if (k === '1') setTool('hand');
   else if (k === 'b') setTool(tool === 'build' ? 'hand' : 'build');
-  else if (k === 'escape') { if (buildType) { buildType = null; ghost = null; renderPanel(); } else { if (panelMode === 'build') setTool('hand'); closePanel(); } }
+  else if (k === 't') setTool(tool === 'troops' ? 'hand' : 'troops');
+  else if (k === 'escape') {
+    if (troopMode) { if (sel.size) { sel.clear(); renderPanel(); } else setTool('hand'); return; }
+    if (buildType) { buildType = null; ghost = null; renderPanel(); } else { if (panelMode === 'build') setTool('hand'); closePanel(); }
+  }
   else if (k === ' ') { e.preventDefault(); setSpeed(speed === 0 ? 1 : 0); }
   else if (k === '+' || k === '=') zoom(1); else if (k === '-') zoom(-1);
 }
@@ -632,13 +781,22 @@ function frame(now) {
   if (!game) return;
   if (!modalOpen && speed > 0) {
     const sum = game.update(dt * speed);
-    if (sum) { closePanel(); onDayEnd(sum); }
+    if (sum) { if (troopMode) setTool('hand'); closePanel(); onDayEnd(sum); }
+  }
+  if (troopMode && !modalOpen) {   // Ansicht mit WASD verschieben
+    const v = 18 / R.cam.zoom * dt;
+    if (keys.has('a') || keys.has('arrowleft')) R.cam.x -= v;
+    if (keys.has('d') || keys.has('arrowright')) R.cam.x += v;
+    if (keys.has('w') || keys.has('arrowup')) R.cam.y -= v;
+    if (keys.has('s') || keys.has('arrowdown')) R.cam.y += v;
   }
   R.follow(game, dt);
-  R.draw(game, { hover: modalOpen ? null : hover, ghost, selected, buildMode: !!buildType }, now / 1000);
+  const cr = $('world').getBoundingClientRect();
+  const boxUi = box ? { x: Math.min(box.x0, box.x1) - cr.left, y: Math.min(box.y0, box.y1) - cr.top, w: Math.abs(box.x1 - box.x0), h: Math.abs(box.y1 - box.y0) } : null;
+  R.draw(game, { hover: modalOpen ? null : hover, ghost, selected, buildMode: !!buildType, sel: troopMode ? sel : null, box: boxUi, ping }, now / 1000);
   R.drawMini(game, dt);
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; renderHud(); }
-  panelT -= dt; if (panelT <= 0) { panelT = 0.6; if (panelMode === 'building' || panelMode === 'tribe') renderPanel(); }
+  panelT -= dt; if (panelT <= 0) { panelT = 0.6; if (panelMode === 'building' || panelMode === 'tribe' || panelMode === 'troops') renderPanel(); }
   saveT -= dt; if (saveT <= 0) { saveT = 45; saveNow(); }
 }
 
@@ -650,14 +808,34 @@ function boot() {
   const cv = $('world');
   cv.addEventListener('pointermove', onPointerMove);
   let down = null;
-  cv.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
-  cv.addEventListener('pointerup', (e) => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12) onTap(e); down = null; });
+  cv.addEventListener('pointerdown', (e) => {
+    down = { x: e.clientX, y: e.clientY, shift: e.shiftKey, cx: R.cam.x, cy: R.cam.y, drag: false };
+    if (troopMode && cv.setPointerCapture) try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!down || !troopMode) return;
+    const dx = e.clientX - down.x, dy = e.clientY - down.y;
+    if (!down.drag && Math.hypot(dx, dy) < 12) return;
+    down.drag = true;
+    if (down.shift) box = { x0: down.x, y0: down.y, x1: e.clientX, y1: e.clientY };
+    else { R.cam.x = down.cx - dx / R.S; R.cam.y = down.cy - dy / R.S; }
+  });
+  cv.addEventListener('pointerup', (e) => {
+    if (down && down.drag && box) { selectBox(box); box = null; }
+    else if (down && !down.drag && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12) onTap(e);
+    down = null;
+  });
   cv.addEventListener('pointerleave', () => { hover = null; if (buildType && !touchGhost) ghost = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); updateMove(); });
   window.addEventListener('blur', () => { keys.clear(); updateMove(); });
-  document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool === tool && tool === 'build' ? 'hand' : b.dataset.tool)));
+  document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool === tool && (tool === 'build' || tool === 'troops') ? 'hand' : b.dataset.tool)));
+  $('mini').addEventListener('click', (e) => {   // im Truppen-Modus springt die Ansicht dorthin
+    if (!game || !troopMode) return;
+    const r = $('mini').getBoundingClientRect();
+    R.cam.x = (e.clientX - r.left) / r.width * game.world.w; R.cam.y = (e.clientY - r.top) / r.height * game.world.h;
+  });
   document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
   $('hEnergy').addEventListener('click', () => { if (game) { game.toast(game.eat()); renderHud(); } });
   $('zoomIn').addEventListener('click', () => zoom(1));
@@ -665,6 +843,7 @@ function boot() {
   $('helpBtn').addEventListener('click', () => game && showHelp(false));
   $('menuBtn').addEventListener('click', () => game && showMenu());
   $('goals').addEventListener('click', () => game && showQuests());
+  $('troops').addEventListener('click', () => game && showTroops());
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
   if (window.innerWidth >= 1200) R.cam.zoom = 1.25;
   // Hintergrund für den Startbildschirm: dein Spielstand oder das Tal der Woche

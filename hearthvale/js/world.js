@@ -1,5 +1,5 @@
 // Karte: Zufall, Rauschen, Generator, Begehbarkeit und Wegsuche
-import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=5';
+import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=6';
 
 export function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 export function mulberry(a) {
@@ -65,24 +65,24 @@ export class World {
 }
 
 /* ---------- Generator ---------- */
-export function generate(seedStr) {
-  const seed = hash(seedStr);
+export function generate(seedStr, attempt = 0) {
+  const seed = hash(attempt ? `${seedStr}~${attempt}` : seedStr);
   const rnd = mulberry(seed);
   const W = MAP_W, H = MAP_H, w = new World(W, H);
   const elevN = makeNoise(seed % 100000), moistN = makeNoise((seed >>> 7) % 100000 + 17), detailN = makeNoise((seed >>> 13) % 100000 + 91);
   const elev = new Float32Array(W * H), moist = new Float32Array(W * H);
 
+  // Höhe: Bergmassive verteilt im Tal, kein Bergrand ringsum
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const nx = (x / (W - 1)) * 2 - 1, ny = (y / (H - 1)) * 2 - 1;
-    const edge = Math.max(0, Math.sqrt(nx * nx * 0.9 + ny * ny * 1.1) - 0.55);
-    const e = elevN(x * 0.07, y * 0.07, 4) * 0.75 + edge * edge * 3.2 + detailN(x * 0.2, y * 0.2, 2) * 0.12;
-    elev[y * W + x] = e;
-    moist[y * W + x] = moistN(x * 0.08 + 40, y * 0.08 + 40, 3);
+    elev[y * W + x] = elevN(x * 0.055, y * 0.055, 4) * 0.82 + detailN(x * 0.2, y * 0.2, 2) * 0.18;
+    moist[y * W + x] = moistN(x * 0.07 + 40, y * 0.07 + 40, 3);
   }
+  const sorted = Float32Array.from(elev).sort();
+  const MOUNT = sorted[Math.floor(sorted.length * 0.925)], HILL = sorted[Math.floor(sorted.length * 0.84)];   // rund 7,5 % Berg
   for (let k = 0; k < W * H; k++) {
     const e = elev[k], m = moist[k];
     let g = G.GRASS;
-    if (e > 0.86) g = G.MOUNTAIN;
+    if (e >= MOUNT) g = G.MOUNTAIN;
     else if (m > 0.6) g = G.FOREST;
     else if (m < 0.36) g = G.MEADOW;
     w.ground[k] = g;
@@ -116,28 +116,35 @@ export function generate(seedStr) {
     }
     if (ok > bestScore) { bestScore = ok; start = { x, y }; }
   }
-  // Großer See mit einer Insel, abseits des Flusses
-  let best = null, island = null;
-  for (let t = 0; t < 400; t++) {
-    const x = 16 + Math.floor(rnd() * (W - 32)), y = 14 + Math.floor(rnd() * (H - 28));
-    if (Math.abs(x - riverX[y]) < 20 || Math.hypot(x - start.x, y - start.y) < 34) continue;
-    const e = elev[y * W + x];
-    if (e < 0.75 && (!best || e < best.e)) best = { x, y, e };
-  }
-  if (best) {
-    const R = 8 + rnd() * 2.5, IR = 3.4;
-    for (let dy = -14; dy <= 14; dy++) for (let dx = -16; dx <= 16; dx++) {
-      const x = best.x + dx, y = best.y + dy;
+  // Seen: ein großer mit Insel weit weg vom Start, dazu ein kleinerer
+  const carve = (cx, cy, R, IR) => {
+    for (let dy = -Math.ceil(R + 4); dy <= Math.ceil(R + 4); dy++) for (let dx = -Math.ceil(R * 1.2 + 4); dx <= Math.ceil(R * 1.2 + 4); dx++) {
+      const x = cx + dx, y = cy + dy;
       if (!w.inb(x, y)) continue;
       const wob = (detailN(x * 0.35, y * 0.35, 2) - 0.5) * 2.6;
       const d = Math.sqrt(dx * dx * 0.75 + dy * dy) + wob;
       const di = Math.sqrt(dx * dx * 0.75 + dy * dy) + wob * 0.4;
-      if (di < IR) { w.ground[y * W + x] = G.MEADOW; continue; }
+      if (IR && di < IR) { w.ground[y * W + x] = G.MEADOW; continue; }
       if (d < R - 1.6) w.ground[y * W + x] = G.DEEP;
       else if (d < R) w.ground[y * W + x] = G.WATER;
     }
-    island = { x: best.x, y: best.y };
-  }
+  };
+  const lakeSpot = (minStart, avoid) => {
+    let best = null;
+    for (let t = 0; t < 500; t++) {
+      const x = 18 + Math.floor(rnd() * (W - 36)), y = 16 + Math.floor(rnd() * (H - 32));
+      if (Math.abs(x - riverX[y]) < 20 || Math.hypot(x - start.x, y - start.y) < minStart) continue;
+      if (avoid && Math.hypot(x - avoid.x, y - avoid.y) < 34) continue;
+      const e = elev[y * W + x];
+      if (e < MOUNT && (!best || e < best.e)) best = { x, y, e };
+    }
+    return best;
+  };
+  let island = null;
+  const big = lakeSpot(40, null);
+  if (big) { carve(big.x, big.y, 8.5 + rnd() * 2.5, 3.4); island = { x: big.x, y: big.y }; }
+  const small = lakeSpot(22, big);
+  if (small) carve(small.x, small.y, 5 + rnd() * 2, 0);
   // Strand an Wasserrändern
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const k = y * W + x;
@@ -148,9 +155,9 @@ export function generate(seedStr) {
   }
   // Brücken über den Fluss: dort, wo beide Ufer begehbar sind
   const bridgeRows = [];
-  for (let tries = 0; tries < 400 && bridgeRows.length < 3; tries++) {
+  for (let tries = 0; tries < 600 && bridgeRows.length < 5; tries++) {
     const y = 6 + Math.floor(rnd() * (H - 12));
-    if (bridgeRows.some((r) => Math.abs(r - y) < 12)) continue;
+    if (bridgeRows.some((r) => Math.abs(r - y) < 14)) continue;
     let x0 = riverX[y], x1 = riverX[y];
     while (w.isWater(x0 - 1, y)) x0--;
     while (w.isWater(x1 + 1, y)) x1++;
@@ -160,13 +167,18 @@ export function generate(seedStr) {
     bridgeRows.push(y);
   }
 
+  // Abgeschnittene Landstücke (zwischen Bergen) bekommen einen Pass zum Hauptland, der Start immer
+  connectLand(w, start);
+  // liegt der Start trotzdem abgeschnitten (nur übers Wasser erreichbar), ein anderes Tal aus demselben Namen
+  if (attempt < 4 && landShare(w, start) < 0.4) return generate(seedStr, attempt + 1);
+
   // Objekte: Wälder, Felsen, Beerensträucher
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const k = y * W + x, g = w.ground[k], e = elev[k], r = rnd();
-    if (g === G.FOREST && r < 0.55) w.obj[k] = { t: 'tree', kind: e > 0.62 || rnd() < 0.3 ? 'pine' : 'oak', age: 9 };
+    if (g === G.FOREST && r < 0.55) w.obj[k] = { t: 'tree', kind: e > HILL || rnd() < 0.3 ? 'pine' : 'oak', age: 9 };
     else if ((g === G.GRASS || g === G.MEADOW) && r < 0.035) w.obj[k] = { t: 'tree', kind: rnd() < 0.7 ? 'oak' : 'pine', age: 9 };
     else if (g !== G.SAND && g !== G.BRIDGE && !w.isWater(x, y) && g !== G.MOUNTAIN) {
-      const nearMountain = e > 0.7;
+      const nearMountain = e > HILL;
       if (r > 1 - (nearMountain ? 0.1 : 0.012)) w.obj[k] = { t: 'rock', size: rnd() < 0.3 ? 2 : 1 };
       else if (g === G.MEADOW && r > 0.955 && r < 0.98) w.obj[k] = { t: 'bush', berries: true, regrow: 0 };
     }
@@ -194,8 +206,9 @@ export function generate(seedStr) {
   };
   sprinkle(7, 7, 13, () => ({ t: 'rock', size: 2 }));
   sprinkle(4, 6, 12, () => ({ t: 'bush', berries: true, regrow: 0 }));
-  // Lagerplätze fremder Stämme: drei an Land, einer auf der Insel
-  const sites = pickTribeSites(w, start, rnd, 3);
+  // Lagerplätze fremder Stämme: fünf an Land, einer auf der Insel, dazu Trampelpfade ins Tal
+  const sites = pickTribeSites(w, start, rnd, 5);
+  carveTrails(w, start, sites);
   if (island) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = island.x + dx, y = island.y + dy; if (w.inb(x, y) && !w.isWater(x, y)) w.obj[w.i(x, y)] = null; }
     sites.push({ x: island.x, y: island.y, island: true });
@@ -204,9 +217,91 @@ export function generate(seedStr) {
     const x = island.x + dx, y = island.y + dy;
     if (w.inb(x, y) && !w.isWater(x, y) && !w.obj[w.i(x, y)] && Math.abs(dx) + Math.abs(dy) >= 3) { w.obj[w.i(x, y)] = { t: 'chest' }; break; }
   }
-  sprinkleChests(w, rnd, [{ x: start.x, y: start.y, r: 16 }, ...sites.map((p) => ({ x: p.x, y: p.y, r: 7 }))], 14);
+  sprinkleChests(w, rnd, [{ x: start.x, y: start.y, r: 16 }, ...sites.map((p) => ({ x: p.x, y: p.y, r: 7 }))], Math.round(W * H / 750));
   w.touchAll();
   return { world: w, start, riverX, sites };
+}
+
+const D4X = [1, -1, 0, 0], D4Y = [0, 0, 1, -1];
+// Flutfüllung ab einem Feld über alles, was pass erlaubt (4 Richtungen). Liefert Markierungen und Anzahl.
+function flood(w, sx, sy, pass) {
+  const W = w.w, H = w.h, mark = new Uint8Array(W * H), q = new Int32Array(W * H);
+  let qh = 0, qt = 0;
+  if (!pass(sx, sy)) return { mark, n: 0 };
+  q[qt++] = sy * W + sx; mark[sy * W + sx] = 1;
+  while (qh < qt) {
+    const c = q[qh++], cx = c % W, cy = (c / W) | 0;
+    for (let d = 0; d < 4; d++) {
+      const x = cx + D4X[d], y = cy + D4Y[d];
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const k = y * W + x;
+      if (mark[k] || !pass(x, y)) continue;
+      mark[k] = 1; q[qt++] = k;
+    }
+  }
+  return { mark, n: qt };
+}
+const groundLand = (w) => (x, y) => { const g = w.ground[y * w.w + x]; return g !== G.MOUNTAIN && g !== G.WATER && g !== G.DEEP; };
+function landShare(w, start) {
+  let total = 0;
+  const land = groundLand(w);
+  for (let y = 0; y < w.h; y++) for (let x = 0; x < w.w; x++) if (land(x, y)) total++;
+  return flood(w, start.x, start.y, land).n / Math.max(1, total);
+}
+// Zusammenhang über Land (Bäume zählen nicht, die kann man fällen). Größere getrennte Stücke werden
+// durch einen Pass mit dem Hauptland verbunden: auf dem kürzesten Weg durch die Berge wird Gras.
+function connectLand(w, start) {
+  const W = w.w, H = w.h, N = W * H, gr = w.ground;
+  const isLand = (k) => { const g = gr[k]; return g !== G.MOUNTAIN && g !== G.WATER && g !== G.DEEP; };
+  const comp = new Int32Array(N).fill(-1), sizes = [], q = new Int32Array(N);
+  for (let k0 = 0; k0 < N; k0++) {
+    if (comp[k0] >= 0 || !isLand(k0)) continue;
+    const id = sizes.length;
+    let qh = 0, qt = 0; q[qt++] = k0; comp[k0] = id;
+    while (qh < qt) {
+      const c = q[qh++], cx = c % W, cy = (c / W) | 0;
+      for (let d = 0; d < 4; d++) {
+        const x = cx + D4X[d], y = cy + D4Y[d];
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const k = y * W + x;
+        if (comp[k] >= 0 || !isLand(k)) continue;
+        comp[k] = id; q[qt++] = k;
+      }
+    }
+    sizes.push(qt);
+  }
+  if (!sizes.length) return;
+  let main = 0;
+  for (let i = 1; i < sizes.length; i++) if (sizes[i] > sizes[main]) main = i;
+  const startComp = comp[start.y * W + start.x];
+  const order = sizes.map((n, i) => i).filter((i) => i !== main && (sizes[i] >= 120 || i === startComp)).sort((a, b) => sizes[b] - sizes[a]);
+  const conn = new Uint8Array(N);
+  for (let k = 0; k < N; k++) if (comp[k] === main) conn[k] = 1;
+  const dist = new Int32Array(N), prev = new Int32Array(N);
+  for (const id of order) {
+    dist.fill(1 << 29); prev.fill(-1);
+    const dq = [], front = [];   // 0-1-Breitensuche: Land kostet nichts, Berg 1, Wasser ist tabu
+    for (let k = 0; k < N; k++) if (comp[k] === id) { dist[k] = 0; dq.push(k); }
+    let head = 0, hit = -1;
+    while (head < dq.length || front.length) {
+      const c = front.length ? front.pop() : dq[head++];
+      if (conn[c]) { hit = c; break; }
+      const cx = c % W, cy = (c / W) | 0, dc = dist[c];
+      for (let d = 0; d < 4; d++) {
+        const x = cx + D4X[d], y = cy + D4Y[d];
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const k = y * W + x, g = gr[k];
+        if (g === G.WATER || g === G.DEEP) continue;
+        const cost = g === G.MOUNTAIN ? 1 : 0, nd = dc + cost;
+        if (nd >= dist[k]) continue;
+        dist[k] = nd; prev[k] = c;
+        if (cost) dq.push(k); else front.push(k);
+      }
+    }
+    if (hit < 0) continue;   // nur übers Wasser erreichbar
+    for (let k = hit; k >= 0; k = prev[k]) { if (gr[k] === G.MOUNTAIN) gr[k] = G.GRASS; conn[k] = 1; }
+    for (let k = 0; k < N; k++) if (comp[k] === id) conn[k] = 1;
+  }
 }
 
 // Freie, per Land erreichbare Plätze für Stammeslager, weit weg vom Start und voneinander
@@ -222,17 +317,47 @@ export function pickTribeSites(w, start, rnd, n, avoid = []) {
     return true;
   };
   const minStart = Math.max(26, Math.round((w.w + w.h) * 0.2));
+  const reach = flood(w, start.x, start.y, terrainPass(w)).mark;
   for (let t = 0; t < 3000 && sites.length < n; t++) {
     const x = 6 + Math.floor(rnd() * (w.w - 12)), y = 6 + Math.floor(rnd() * (w.h - 12));
     if (Math.abs(x - start.x) + Math.abs(y - start.y) < minStart) continue;
     if (sites.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 24)) continue;
     if (avoid.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 16)) continue;
     if (!okArea(x, y)) continue;
-    if (!findPath(w, start.x, start.y, (xx, yy) => Math.abs(xx - x) <= 4 && Math.abs(yy - y) <= 4, x, y, 40000)) continue;
+    if (!reach[y * w.w + x]) continue;
     for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) { const xx = x + dx, yy = y + dy; if (w.inb(xx, yy) && !w.isWater(xx, yy)) { const k = w.i(xx, yy); if (w.obj[k]) w.obj[k] = null; if (w.ground[k] === G.FOREST) w.ground[k] = G.GRASS; } }
     sites.push({ x, y });
   }
   return sites;
+}
+// begehbar, wenn man Bäume und Felsen wegdenkt (nicht durch Gebäude, Lager oder Truhen)
+export function terrainPass(w) {
+  return (x, y) => {
+    if (!w.inb(x, y)) return false;
+    const k = w.i(x, y), g = w.ground[k], o = w.obj[k];
+    return g !== G.MOUNTAIN && g !== G.WATER && g !== G.DEEP && w.bld[k] < 0 && w.tstruct[k] < 0 && !(o && o.t === 'chest');
+  };
+}
+// Trampelpfade von jedem Stammeslager ins Tal: Bäume und Felsen weg, Boden wird Erde
+export function carveTrails(w, start, sites) {
+  const pass = terrainPass(w);
+  const clear = (x, y) => {
+    const k = w.i(x, y), g = w.ground[k];
+    if (w.obj[k] && w.obj[k].t !== 'chest') w.obj[k] = null;
+    if (g === G.GRASS || g === G.MEADOW || g === G.FOREST) w.ground[k] = G.DIRT;
+    w.touch(x, y);
+  };
+  for (const p of sites) {
+    if (p.island) continue;
+    const path = findPath(w, p.x, p.y, (x, y) => Math.abs(x - start.x) <= 3 && Math.abs(y - start.y) <= 3, start.x, start.y, 60000, pass);
+    if (!path) continue;
+    let px = p.x, py = p.y;
+    for (const n of path) {
+      if (n.x !== px && n.y !== py && pass(n.x, py)) clear(n.x, py);   // diagonale Schritte bekommen eine freie Ecke
+      clear(n.x, n.y);
+      px = n.x; py = n.y;
+    }
+  }
 }
 // Schatztruhen auf freiem Land, nicht zu nah an den Punkten in avoid
 export function sprinkleChests(w, rnd, avoid, n) {
@@ -249,31 +374,37 @@ export function sprinkleChests(w, rnd, avoid, n) {
 }
 
 /* ---------- Wegsuche (A*, 8 Richtungen, keine Ecken abschneiden) ---------- */
-class Heap {
-  constructor() { this.a = []; this.f = []; }
+class Heap {   // Binärheap ohne Hilfs-Arrays beim Tauschen
+  constructor() { this.a = []; this.f = []; this.n = 0; }
   push(v, f) {
-    const a = this.a, fs = this.f; a.push(v); fs.push(f);
-    let i = a.length - 1;
-    while (i > 0) { const p = (i - 1) >> 1; if (fs[p] <= fs[i]) break; [a[p], a[i]] = [a[i], a[p]]; [fs[p], fs[i]] = [fs[i], fs[p]]; i = p; }
+    const a = this.a, fs = this.f;
+    let i = this.n++;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (fs[p] <= f) break;
+      a[i] = a[p]; fs[i] = fs[p]; i = p;
+    }
+    a[i] = v; fs[i] = f;
   }
   pop() {
-    const a = this.a, fs = this.f, top = a[0], last = a.pop(), lf = fs.pop();
-    if (a.length) {
-      a[0] = last; fs[0] = lf;
+    const a = this.a, fs = this.f, top = a[0], n = --this.n;
+    if (n > 0) {
+      const v = a[n], f = fs[n];
       let i = 0;
       for (;;) {
-        const l = 2 * i + 1, r = l + 1; let m = i;
-        if (l < a.length && fs[l] < fs[m]) m = l;
-        if (r < a.length && fs[r] < fs[m]) m = r;
-        if (m === i) break;
-        [a[m], a[i]] = [a[i], a[m]]; [fs[m], fs[i]] = [fs[i], fs[m]]; i = m;
+        const l = 2 * i + 1;
+        if (l >= n) break;
+        const r = l + 1, c = r < n && fs[r] < fs[l] ? r : l;
+        if (fs[c] >= f) break;
+        a[i] = a[c]; fs[i] = fs[c]; i = c;
       }
+      a[i] = v; fs[i] = f;
     }
     return top;
   }
-  get size() { return this.a.length; }
+  get size() { return this.n; }
 }
-const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1], DC = [1, 1, 1, 1, 1.414, 1.414, 1.414, 1.414];
 let POOL = null;
 function pool(N) {
   if (!POOL || POOL.N !== N) POOL = { N, gs: new Float32Array(N), came: new Int32Array(N), stamp: new Uint32Array(N), closed: new Uint32Array(N), gen: 0 };
@@ -282,18 +413,19 @@ function pool(N) {
 }
 
 // goal(x, y) → true am Ziel. (hx, hy) ist die Richtung für die Schätzung.
-export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 8000, pass = null) {
-  const W = w.w, N = w.w * w.h;
+// Die Schätzung ist leicht gewichtet: schneller, die Wege sind trotzdem fast immer die kürzesten.
+export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 20000, pass = null) {
+  const W = w.w, N = w.w * w.h, ground = w.ground;
   const ok = pass || ((x, y) => w.walkable(x, y));
   if (!w.inb(sx, sy)) return null;
   const P = pool(N), gen = P.gen, gs = P.gs, came = P.came, stamp = P.stamp, closed = P.closed;
-  const h = (x, y) => { const dx = Math.abs(x - hx), dy = Math.abs(y - hy); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy); };
   const s = sy * W + sx;
   gs[s] = 0; stamp[s] = gen; came[s] = -1;
   const open = new Heap();
-  open.push(s, h(sx, sy));
+  const hOf = (x, y) => { const dx = Math.abs(x - hx), dy = Math.abs(y - hy); return (dx > dy ? dx + 0.414 * dy : dy + 0.414 * dx) * 0.85; };
+  open.push(s, hOf(sx, sy));
   let n = 0;
-  while (open.size && n++ < maxNodes) {
+  while (open.n && n++ < maxNodes) {
     const c = open.pop();
     if (closed[c] === gen) continue;
     closed[c] = gen;
@@ -304,16 +436,16 @@ export function findPath(w, sx, sy, goal, hx, hy, maxNodes = 8000, pass = null) 
       while (k !== s) { path.push({ x: k % W, y: (k / W) | 0 }); k = came[k]; }
       return path.reverse();
     }
-    for (const [dx, dy, cost] of DIRS8) {
-      const nx = cx + dx, ny = cy + dy;
+    const gc = gs[c];
+    for (let d = 0; d < 8; d++) {
+      const dx = DX[d], dy = DY[d], nx = cx + dx, ny = cy + dy;
       if (!ok(nx, ny)) continue;
-      if (dx && dy && (!ok(cx + dx, cy) || !ok(cx, cy + dy))) continue;
+      if (d >= 4 && (!ok(cx + dx, cy) || !ok(cx, cy + dy))) continue;
       const nk = ny * W + nx;
       if (closed[nk] === gen) continue;
-      const gk = w.ground[nk];
-      const tileCost = gk === G.PATH || gk === G.BRIDGE ? 0.6 : gk === G.WATER || gk === G.DEEP ? 1.6 : 1;
-      const ng = gs[c] + cost * tileCost;
-      if (stamp[nk] !== gen || ng < gs[nk]) { gs[nk] = ng; stamp[nk] = gen; came[nk] = c; open.push(nk, ng + h(nx, ny) * 0.6); }
+      const gk = ground[nk];
+      const ng = gc + DC[d] * (gk === G.PATH || gk === G.BRIDGE ? 0.6 : gk === G.WATER || gk === G.DEEP ? 1.6 : 1);
+      if (stamp[nk] !== gen || ng < gs[nk]) { gs[nk] = ng; stamp[nk] = gen; came[nk] = c; open.push(nk, ng + hOf(nx, ny)); }
     }
   }
   return null;

@@ -1,7 +1,7 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, WARSHIP, TRIBES, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=5';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests } from './world.js?v=5';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, WARSHIP, TRIBES, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=6';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=6';
 
 export const CAMP_R = 8;        // so weit reicht das Land eines Stammes
 export const FIRST_RAID = 11;   // vorher greift niemand an
@@ -15,7 +15,7 @@ const costText = (c) => Object.keys(c || {}).map((k) => `${c[k]} ${ITEMS[k].name
 
 export const QUEST_TEST = {
   bread: (g) => g.stats.bread > 0,
-  explore25: (g) => g.explored() >= 0.25,
+  explore25: (g) => g.explored() >= 0.2,
   tribe: (g) => g.tribes.some((t) => t.discovered),
   stonehouse: (g) => g.buildings.some((b) => b.type === 'house' && (b.level || 1) >= 2),
   iron: (g) => g.stats.iron > 0,
@@ -29,7 +29,7 @@ export const QUEST_TEST = {
   raid: (g) => g.stats.repelled > 0,
   conquer: (g) => g.stats.conquered > 0,
   townhouse: (g) => g.buildings.some((b) => b.type === 'house' && (b.level || 1) >= 3),
-  explore60: (g) => g.explored() >= 0.6,
+  explore60: (g) => g.explored() >= 0.5,
   allTribes: (g) => g.tribes.length > 0 && g.tribes.every((t) => t.defeated),
 };
 
@@ -50,10 +50,11 @@ export const Realm = {
   // Ältere Spielstände bekommen Stämme, Truhen und eine erkundete Umgebung
   upgradeOld() {
     const hut = this.buildings.find((b) => b.type === 'hut') || this.buildings[0];
-    const start = { x: hut.x + 1, y: hut.y + 1 };
+    const start = { x: hut.x + 1, y: hut.y + hut.h };   // vor der Tür, nicht im Gebäude
     const rnd = mulberry(hash(this.seed + ':ausbau'));
     const avoid = this.buildings.map((b) => ({ x: b.x, y: b.y }));
     const sites = pickTribeSites(this.world, start, rnd, 3, avoid);
+    carveTrails(this.world, start, sites);
     this.seenCount = 0;
     this.setupRealm(sites);
     sprinkleChests(this.world, rnd, [...avoid.map((p) => ({ ...p, r: 12 })), ...sites.map((p) => ({ ...p, r: 7 }))], 9);
@@ -177,7 +178,7 @@ export const Realm = {
   },
   updateVision() {
     const p = this.player;
-    this.reveal(p.x, p.y, 7.5);
+    this.reveal(p.x, p.y, 8.5);
     for (const s of this.settlers) this.reveal(s.x, s.y, 3.5);
     for (const s of this.soldiers) if (s.state !== 'garrison') this.reveal(s.x, s.y, 5.5);
     const w = this.world;
@@ -333,8 +334,12 @@ export const Realm = {
       const ready = want.find((k) => this.has(this.trainCost(b, k)));
       if (!ready) { b.why = this.trainWhy(b, want[0]); continue; }
       if (this.settlers.some((s) => s.recruit === b.id)) { b.why = 'Ein Siedler ist auf dem Weg zur Ausbildung.'; continue; }
-      const free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !(s.task && s.task.site != null));
-      if (!free.length) { b.why = 'Kein freier Siedler. Alle haben Arbeit. Neue kommen, wenn Betten frei sind und es genug Essen gibt.'; continue; }
+      let free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !(s.task && s.task.site != null));
+      if (!free.length) {   // keiner frei: einen Arbeiter holen, zuerst von pausierten oder wartenden Arbeitsplätzen
+        const rank = (s) => { const jb = this.byId(s.job); return (jb && jb.paused ? 0 : 2) + (s.state === 'seek' && s.timer > 0 ? 0 : 1); };
+        free = this.settlers.filter((s) => s.job != null && s.recruit == null && !s.carry && s.state !== 'working').sort((a, c) => rank(a) - rank(c)).slice(0, 1);
+      }
+      if (!free.length) { b.why = 'Gerade ist kein Siedler abkömmlich. Bau Wohnhäuser, dann kommen mehr.'; continue; }
       const d = this.door(b);
       free.sort((a, c) => (Math.abs(a.x - d.x) + Math.abs(a.y - d.y)) - (Math.abs(c.x - d.x) + Math.abs(c.y - d.y)));
       const s = free[0];
@@ -406,7 +411,7 @@ export const Realm = {
     if (s.swing > 0) s.swing -= dt;
     if (s.hurtT > 0) s.hurtT -= dt;
     const home = this.byId(s.home), spd = this.unitSpeed(s);
-    if (!home && s.state !== 'march' && s.state !== 'fight') { this.rehome(s); return; }
+    if (!home && !['march', 'fight', 'move', 'hold'].includes(s.state)) { this.rehome(s); return; }
     switch (s.state) {
       case 'garrison': {
         s.hp = Math.min(this.maxHp(s), s.hp + dt * 0.6);
@@ -474,19 +479,81 @@ export const Realm = {
       }
       case 'fight': {
         const f = this.foes.find((x) => x.id === s.foe);
-        const giveUp = !f || (s.stuckT || 0) > 3 || (s.campaign == null && home && Math.hypot(f.x - home.x, f.y - home.y) > 30 && !this.inLand(Math.floor(f.x), Math.floor(f.y)));
+        const tooFar = !s.ordered && f && (s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > 12
+          : s.campaign == null && home && Math.hypot(f.x - home.x, f.y - home.y) > 30 && !this.inLand(Math.floor(f.x), Math.floor(f.y)));
+        const giveUp = !f || (s.stuckT || 0) > 3 || tooFar;
         if (giveUp) {
-          s.foe = null; s.stuckT = 0; s.path = null;
-          const n = s.campaign != null ? this.nearestFoe(s.x, s.y, 9) : this.nearestFoe(s.x, s.y, 8) || (home && home.type === 'barracks' ? this.raidTarget(s.x, s.y) : null);
+          s.foe = null; s.stuckT = 0; s.path = null; s.ordered = false;
+          const n = s.campaign != null ? this.nearestFoe(s.x, s.y, 9)
+            : s.post ? this.nearestFoe(s.post.x + 0.5, s.post.y + 0.5, s.type === 'archer' ? this.rangeOf(s) + 1.5 : 6)
+            : this.nearestFoe(s.x, s.y, 8) || (home && home.type === 'barracks' ? this.raidTarget(s.x, s.y) : null);
           if (n && n !== f) { s.foe = n.id; return; }
-          s.state = s.campaign != null ? 'march' : 'return';
+          s.state = s.campaign != null ? 'march' : s.post ? 'move' : 'return';
           return;
         }
         this.engage(s, f, dt, spd);
         return;
       }
+      case 'move': {   // auf dem Weg zum befohlenen Platz; wehrt sich unterwegs
+        if ((s.think -= dt) <= 0) {
+          s.think = 0.4;
+          const f = this.nearestFoe(s.x, s.y, s.type === 'archer' ? this.rangeOf(s) : 3);
+          if (f) { s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; return; }
+        }
+        const p = s.post;
+        if (!p) { s.state = 'return'; return; }
+        if (!s.path) {
+          if ((s.repath = (s.repath || 0) - dt) > 0) return;
+          s.repath = 1;
+          const r = this.unitGo(s, (x, y) => x === p.x && y === p.y, p.x, p.y, 40000);
+          if (r === 'here') s.state = 'hold';
+          else if (!r) { s.post = { x: Math.floor(s.x), y: Math.floor(s.y) }; s.state = 'hold'; }
+          return;
+        }
+        const r = this.follow(s, dt * spd);
+        if (r === true) { s.path = null; s.state = 'hold'; } else if (r === 'blocked') s.path = null;
+        return;
+      }
+      case 'hold': {   // hält die Stellung und kämpft gegen alles, was in Reichweite kommt
+        s.hp = Math.min(this.maxHp(s), s.hp + dt * 0.25);
+        if ((s.think -= dt) > 0) return;
+        s.think = 0.4;
+        const f = this.nearestFoe(s.x, s.y, s.type === 'archer' ? this.rangeOf(s) + 1.5 : 6);
+        if (f) { s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; return; }
+        if (!s.post) { s.state = 'return'; return; }
+        if (Math.hypot(s.x - s.post.x - 0.5, s.y - s.post.y - 0.5) > 1.2) { s.state = 'move'; s.path = null; s.repath = 0; }
+        return;
+      }
       default: s.state = 'return';
     }
+  },
+  /* ---------- Befehle an ausgewählte Soldaten ---------- */
+  canStand(x, y) { return this.world.walkable(x, y); },
+  // hingehen und dort die Stellung halten; Schwertkämpfer nach vorn, Bogenschützen dahinter
+  orderMove(list, tx, ty) {
+    const spots = [];
+    for (let r = 0; r <= 8 && spots.length < list.length; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      if (this.canStand(tx + dx, ty + dy)) spots.push({ x: tx + dx, y: ty + dy });
+    }
+    if (!spots.length) return 'Dort können keine Soldaten stehen.';
+    const sorted = [...list].sort((a, c) => (a.type === 'archer') - (c.type === 'archer'));
+    sorted.forEach((s, i) => {
+      if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
+      const p = spots[Math.min(i, spots.length - 1)];
+      Object.assign(s, { post: { x: p.x, y: p.y }, campaign: null, foe: null, ordered: false, state: 'move', path: null, repath: 0, stuckT: 0 });
+    });
+    return null;
+  },
+  orderAttackFoe(list, foe) {
+    for (const s of list) {
+      if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
+      Object.assign(s, { campaign: null, foe: foe.id, ordered: true, state: 'fight', path: null, repath: 0, stuckT: 0 });
+    }
+  },
+  // zurück nach Hause (Kaserne, Turm oder Festung)
+  orderRelease(list) {
+    for (const s of list) Object.assign(s, { post: null, campaign: null, foe: null, ordered: false, state: s.state === 'garrison' ? 'garrison' : 'return', path: null });
   },
   // Feinde in deinem Land oder in der Nähe der Kaserne
   raidTarget(x, y) {
@@ -632,7 +699,11 @@ export const Realm = {
       while (t.acc >= 1) { t.acc--; if (t.warriors + this.foesOf(ti) < t.cap) t.warriors++; }
       if (t.island || this.day < FIRST_RAID || t.peaceUntil >= this.day) return;
       t.raidIn--;
-      if (t.raidIn <= 0) { t.raidAt = (2 + this.rng() * 6) * SEC_PER_HOUR; t.raidIn = 6 + Math.floor(this.rng() * 4); }
+      if (t.raidIn <= 0) {   // weit entfernte Stämme kommen seltener
+        const hut = this.buildings.find((b) => b.type === 'hut') || this.buildings[0];
+        t.raidAt = (2 + this.rng() * 6) * SEC_PER_HOUR;
+        t.raidIn = 6 + Math.floor(Math.hypot(t.cx - hut.x, t.cy - hut.y) / 25) + Math.floor(this.rng() * 4);
+      }
     });
   },
   launchRaid(t) {
@@ -799,13 +870,13 @@ export const Realm = {
     this.today.events.push(msg);
   },
   // want: Anzahl oder { sword, archer }
-  attackTribe(ti, want) {
+  attackTribe(ti, want, list) {
     const t = this.tribes[ti];
     if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
-    const avail = this.attackers();
+    const avail = list || this.attackers();
     if (!avail.length) return 'Keine freien Soldaten. Bilde in der Kaserne welche aus. Jeder Turm behält eine Wache.';
     if (t.island && this.boats <= 0) return 'Die Insel erreichst du nur mit einem Boot. Bau eine Werft und bestell eins.';
-    let pick = typeof want === 'number' ? avail.slice(0, want)
+    let pick = list ? list.slice() : typeof want === 'number' ? avail.slice(0, want)
       : [...avail.filter((s) => s.type !== 'archer').slice(0, want.sword || 0), ...avail.filter((s) => s.type === 'archer').slice(0, want.archer || 0)];
     if (t.island) pick = pick.slice(0, this.boatSeats());
     if (!pick.length) return 'Wähl mindestens einen Soldaten aus.';
@@ -813,7 +884,7 @@ export const Realm = {
     let sent = 0;
     for (const s of pick) {
       if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
-      s.campaign = ti; s.foe = null;
+      s.campaign = ti; s.foe = null; s.post = null; s.ordered = false;
       const r = this.unitGo(s, goal, t.cx, t.cy, 40000);
       if (!r) { s.campaign = null; continue; }
       s.state = 'march'; s.think = 0; sent++;
@@ -929,7 +1000,7 @@ export const Realm = {
   saveRealm() {
     return {
       tribes: this.tribes.map((t, i) => ({ ...t, raid: null, warriors: t.warriors + this.foesOf(i) })),
-      soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived })),
+      soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
   },
@@ -942,7 +1013,7 @@ export const Realm = {
     this.soldiers = (d.soldiers || []).map((s) => {
       const home = this.byId(s.home);
       const inside = home && home.type !== 'barracks' && s.arrived;
-      return { ...s, kind: 'soldier', type: s.type || 'sword', drill: s.drill || 1, state: inside ? 'garrison' : 'return', path: null, pi: 0, cd: 0, think: 0, campaign: null, foe: null, walkT: 0, facing: 2 };
+      return { ...s, kind: 'soldier', type: s.type || 'sword', drill: s.drill || 1, post: s.post || null, state: s.post ? 'move' : inside ? 'garrison' : 'return', path: null, pi: 0, cd: 0, think: 0, campaign: null, foe: null, walkT: 0, facing: 2 };
     });
     this.markCamps();
   },

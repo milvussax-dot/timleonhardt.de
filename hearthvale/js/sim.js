@@ -4,11 +4,26 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=5';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=5';
-import { Realm } from './realm.js?v=5';
+} from './data.js?v=6';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=6';
+import { Realm } from './realm.js?v=6';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
+// Bäume (1–20), Felsen (21–22) und Sträucher (23–27) passen in ein Byte
+const clampI = (v, a, b) => Math.max(a, Math.min(b, Math.round(v || 0)));
+function objCode(o) {
+  if (o.t === 'tree') return (o.kind === 'pine' ? 11 : 1) + clampI(o.age, 0, 9);
+  if (o.t === 'rock') return 20 + clampI(o.size, 1, 2);
+  if (o.t === 'bush') return o.berries ? 23 : 24 + clampI(o.regrow, 0, 3);
+  return 0;
+}
+function objFromCode(c) {
+  if (c <= 10) return { t: 'tree', kind: 'oak', age: c - 1 };
+  if (c <= 20) return { t: 'tree', kind: 'pine', age: c - 11 };
+  if (c <= 22) return { t: 'rock', size: c - 20 };
+  if (c === 23) return { t: 'bush', berries: true, regrow: 0 };
+  return { t: 'bush', berries: false, regrow: c - 24 };
+}
 const HAT_COLORS = ['#e07a5f', '#3d85c6', '#81b29a', '#f2cc8f', '#9c6ade', '#e9c46a', '#2a9d8f'];
 const ENERGY_FOOD = { bread: 25, pumpkin: 30, fish: 12, carrot: 6, berry: 5 };
 
@@ -92,10 +107,12 @@ export class Game {
     this.today.sold[item] = (this.today.sold[item] || 0) + n;
     return earned;
   }
+  // Kaufen kostet rund die Hälfte mehr als Verkaufen bringt (Saatgut zum normalen Preis)
+  buyPrice(item) { const p = ITEMS[item].price; return ITEMS[item].seed ? p : Math.max(p + 1, Math.ceil(p * 1.5)); }
   buy(item, n) {
-    const price = ITEMS[item].price * n;
-    if (this.coins < price) return false;
-    this.coins -= price; this.stock[item] += n;
+    const price = this.buyPrice(item) * n;
+    if (n <= 0 || this.coins < price) return false;
+    this.coins -= price; this.stock[item] = (this.stock[item] || 0) + n;
     return true;
   }
   eat() {
@@ -287,7 +304,7 @@ export class Game {
   goTo(s, goal, hx, hy, after) {
     const sx = Math.floor(s.x), sy = Math.floor(s.y);
     if (goal(sx, sy)) { s.state = after; s.path = null; return true; }
-    const path = findPath(this.world, sx, sy, goal, hx, hy, 8000, this.passFor(s));
+    const path = findPath(this.world, sx, sy, goal, hx, hy, 20000, this.passFor(s));
     if (!path) return false;
     s.path = path; s.pi = 0; s.after = after; s.dest = { goal, hx, hy };
     s.state = 'walk';
@@ -300,7 +317,7 @@ export class Game {
       const n = e.path[e.pi];
       if (!(pass ? pass(n.x, n.y) : this.world.walkable(n.x, n.y))) {   // Weg versperrt: neu suchen
         const d = e.dest;
-        const p = d ? findPath(this.world, Math.floor(e.x), Math.floor(e.y), d.goal, d.hx, d.hy, 8000, pass) : null;
+        const p = d ? findPath(this.world, Math.floor(e.x), Math.floor(e.y), d.goal, d.hx, d.hy, 20000, pass) : null;
         if (p && p.length) { e.path = p; e.pi = 0; continue; }
         e.path = null; return 'blocked';
       }
@@ -348,7 +365,7 @@ export class Game {
     const st = this.nearestStorage(s.x, s.y) || this.buildings[0];
     if (!st) return false;
     const d = this.door(st);
-    if (findPath(this.world, Math.floor(s.x), Math.floor(s.y), (x, y) => x === d.x && y === d.y, d.x, d.y, 8000, this.passFor(s))) return false;
+    if (findPath(this.world, Math.floor(s.x), Math.floor(s.y), (x, y) => x === d.x && y === d.y, d.x, d.y, 20000, this.passFor(s))) return false;
     this.unstick(s, s.job != null ? this.byId(s.job) : st);
     return true;
   }
@@ -757,7 +774,7 @@ export class Game {
     const a = { type: act, x: tx, y: ty };
     const px = Math.floor(p.x), py = Math.floor(p.y);
     if (Math.max(Math.abs(px - tx), Math.abs(py - ty)) === 1) { this.beginAction(a); return null; }
-    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 8000, this.passFor(p));
+    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 50000, this.passFor(p));
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.dest = { goal: nextTo(tx, ty), hx: tx, hy: ty };
     if (!p.path) this.beginAction(a); else p.pending = a;
@@ -779,7 +796,7 @@ export class Game {
   walkTo(tx, ty) {
     const p = this.player, w = this.world, pass = this.passFor(p);
     const goal = (pass ? pass(tx, ty) : w.walkable(tx, ty)) ? (x, y) => x === tx && y === ty : nextTo(tx, ty);
-    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 8000, pass);
+    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 50000, pass);
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.pending = null; p.dest = { goal, hx: tx, hy: ty };
     return null;
@@ -894,13 +911,13 @@ export class Game {
   save() {
     const w = this.world;
     const enc = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
-    const objs = [];
-    w.obj.forEach((o, k) => { if (o) objs.push([k, o]); });
+    const objs = [], tr = new Uint8Array(w.w * w.h);
+    w.obj.forEach((o, k) => { if (!o) return; const c = objCode(o); if (c) tr[k] = c; else objs.push([k, o]); });
     return JSON.stringify({
       v: 2, w: w.w, h: w.h, seed: this.seed, mode: this.mode, week: this.week, day: this.day, time: this.time, weather: this.weather,
       coins: this.coins, energy: this.energy, water: this.water, stock: this.stock, seedKind: this.seedKind, autoSell: this.autoSell,
       yearScore: this.yearScore, submitted: this.submitted, fed: this.fed, starving: this.starving, totals: this.totals, nextId: this.nextId,
-      ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs,
+      ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs, tr: enc(tr),
       buildings: this.buildings.map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, built: b.built, progress: b.progress, in: b.in, out: b.out, fields: b.fields, paused: !!b.paused, level: b.level || 1, upgrading: b.upgrading || null, orders: b.orders || 0, training: b.training || null, tribe: b.tribe })),
       settlers: this.settlers.map((s) => ({ id: s.id, x: s.x, y: s.y, home: s.home, hat: s.hat })),
       player: { x: this.player.x, y: this.player.y },
@@ -917,6 +934,7 @@ export class Game {
     const dec = (s, arr) => { const bin = atob(s); for (let i = 0; i < arr.length; i++) arr[i] = bin.charCodeAt(i); };
     dec(d.ground, w.ground); dec(d.wet, w.wet);
     if (d.seen) dec(d.seen, w.seen);
+    if (d.tr) { const codes = new Uint8Array(W * H); dec(d.tr, codes); for (let k = 0; k < codes.length; k++) if (codes[k]) w.obj[k] = objFromCode(codes[k]); }
     for (const [k, o] of d.objs) w.obj[k] = o;
     Object.assign(g, {
       world: w, seed: d.seed, mode: d.mode, week: d.week, day: d.day, time: d.time, weather: d.weather, coins: d.coins, energy: d.energy, water: d.water,

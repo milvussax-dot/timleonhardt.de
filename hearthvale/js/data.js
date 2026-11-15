@@ -1,6 +1,6 @@
 // Spieldaten: Boden, Gegenstände, Pflanzen, Gebäude, Militär, Stämme, Ziele, Zeit
-export const MAP_W = 112;   // neue Täler; ältere Spielstände behalten ihre Größe
-export const MAP_H = 84;
+export const MAP_W = 176;   // neue Täler; ältere Spielstände behalten ihre Größe
+export const MAP_H = 132;
 export const TILE = 32;
 
 // Bodenarten
@@ -116,13 +116,15 @@ export const TRIBES = [
   { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.2, hp: 9,  start: 6, grow: 0.4 },
   { key: 'moorhueter',   name: 'Moorhüter',    color: '#8a5bd6', atk: 2.0, hp: 10, start: 5, grow: 0.35 },
   { key: 'steinbrecher', name: 'Steinbrecher', color: '#d08a2b', atk: 2.6, hp: 11, start: 7, grow: 0.45 },
+  { key: 'dornkrallen',  name: 'Dornkrallen',  color: '#c84f9a', atk: 2.4, hp: 10, start: 6, grow: 0.4 },
+  { key: 'sonnenspeere', name: 'Sonnenspeere', color: '#d4a82a', atk: 2.5, hp: 11, start: 7, grow: 0.45 },
   { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.1, hp: 9,  start: 5, grow: 0.3 },
 ];
 
 // Ziele, der Reihe nach
 export const QUESTS = [
   { id: 'bread',     text: 'Back dein erstes Brot', reward: 30 },
-  { id: 'explore25', text: 'Erkunde ein Viertel des Tals', reward: 40 },
+  { id: 'explore25', text: 'Erkunde ein Fünftel des Tals', reward: 40 },
   { id: 'tribe',     text: 'Entdecke einen fremden Stamm', reward: 30 },
   { id: 'stonehouse',text: 'Bau ein Wohnhaus zum Steinhaus aus', reward: 50 },
   { id: 'iron',      text: 'Schmilz dein erstes Eisen', reward: 40 },
@@ -136,8 +138,8 @@ export const QUESTS = [
   { id: 'conquer',   text: 'Erobere ein Stammeslager', reward: 150 },
   { id: 'townhouse', text: 'Bau ein Stadthaus', reward: 100 },
   { id: 'warship',   text: 'Bau ein Kriegsschiff', reward: 80 },
-  { id: 'explore60', text: 'Erkunde 60 Prozent des Tals', reward: 100 },
-  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 400 },
+  { id: 'explore60', text: 'Erkunde die Hälfte des Tals', reward: 120 },
+  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 500 },
 ];
 
 // Energie und Dauer der eigenen Aktionen (Sekunden bei 1×)
