@@ -28,6 +28,7 @@ const costChips = (cost, game) => Object.keys(cost || {}).map((k) => chip(k, cos
 
 let game = null, R = null, speed = 1, tool = 'hand', buildType = null, ghost = null, hover = null, selected = null, panelMode = null;
 let modalOpen = false, hudT = 0, panelT = 0, saveT = 45, lastStock = {}, touchGhost = null;
+let active = false;   // erst gespeichert wird, wenn wirklich gespielt wird (nicht die Vorschau hinter dem Startbildschirm)
 const keys = new Set();
 
 /* ---------- Woche und Bestenliste ---------- */
@@ -60,9 +61,10 @@ function bindLb(root, rerender) {
 
 /* ---------- Start ---------- */
 function savedGame() { try { const s = localStorage.getItem(SAVE_KEY); return s ? Game.load(s) : null; } catch (e) { return null; } }
-function saveNow() { if (!game) return; try { localStorage.setItem(SAVE_KEY, game.save()); } catch (e) { /* Speicher voll oder gesperrt */ } }
+function saveNow() { if (!game || !active) return; try { localStorage.setItem(SAVE_KEY, game.save()); } catch (e) { /* Speicher voll oder gesperrt */ } }
 
 function showStart() {
+  active = false;
   const saved = savedGame();
   const wk = isoWeek();
   openModal(() => `
@@ -99,6 +101,7 @@ function showStart() {
   });
 }
 function startGame(fresh) {
+  active = true;
   closeModal();
   R.resize(); R.snap(game);
   speed = 1; setSpeed(1); setTool('hand'); closePanel();
