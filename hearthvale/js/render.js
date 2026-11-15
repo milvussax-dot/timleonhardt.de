@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=13';
-import { cellRand } from './world.js?v=13';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=14';
+import { cellRand } from './world.js?v=14';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],

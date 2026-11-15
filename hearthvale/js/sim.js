@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=13';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=13';
-import { Realm } from './realm.js?v=13';
+} from './data.js?v=14';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=14';
+import { Realm } from './realm.js?v=14';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
@@ -342,6 +342,20 @@ export class Game {
       const home = houses.find((h) => this.settlers.filter((s) => s.home === h.id).length < this.bedsOf(h));
       if (!home) break;
       this.spawnSettler(home); n++;
+    }
+    return n;
+  }
+  // viele Siedler auf einmal (Code im Menü): erst freie Betten, dann reihum in die Wohnhäuser, auch über die Betten hinaus.
+  // Ohne Wohnhaus wohnen sie an der Hütte. Liefert die Zahl der neuen Siedler.
+  addSettlers(n) {
+    const houses = this.buildings.filter((b) => b.type === 'house' && b.built);
+    const count = new Map(houses.map((h) => [h.id, 0]));
+    for (const s of this.settlers) if (count.has(s.home)) count.set(s.home, count.get(s.home) + 1);
+    for (let i = 0; i < n; i++) {
+      let home = null, best = Infinity;
+      for (const h of houses) { const load = count.get(h.id) / this.bedsOf(h); if (load < best) { best = load; home = h; } }
+      this.spawnSettler(home);
+      if (home) count.set(home.id, count.get(home.id) + 1);
     }
     return n;
   }

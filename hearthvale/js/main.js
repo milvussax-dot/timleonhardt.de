@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=13';
-import { Renderer } from './render.js?v=13';
-import { cellRand } from './world.js?v=13';
-import { Sound } from './audio.js?v=13';
-import { FIRST_RAID } from './realm.js?v=13';
+import { Game } from './sim.js?v=14';
+import { Renderer } from './render.js?v=14';
+import { cellRand } from './world.js?v=14';
+import { Sound } from './audio.js?v=14';
+import { FIRST_RAID } from './realm.js?v=14';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=13';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=14';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -13,8 +13,10 @@ const INDEX_KEY = 'hearthvale.saves';      // Liste aller Spielstände
 const SLOT_KEY = 'hearthvale.slot.';
 const MAX_SLOTS = 5;
 // Codes: nur ihre Prüfsummen stehen hier, die Codes selbst nicht.
-// Münzen gibt es ein einziges Mal pro Browser, der Siedler-Code füllt jedes Mal alle freien Betten.
-const CODES = { '85d5518962cbbcec9d9dae0f15d1722133e47de1e366cb86f3c1ab3a56072768': 'coins', '5fc6e8b91dbabeb654e4eeb85964611633ad4a7581ba0b2dbdc91c38c3dd5063': 'settlers' };
+// Münzen gibt es ein einziges Mal pro Browser, der Siedler-Code füllt jedes Mal alle freien Betten,
+// der große Code bringt jedes Mal 100 Siedler und 100.000 Münzen.
+const CODES = { '85d5518962cbbcec9d9dae0f15d1722133e47de1e366cb86f3c1ab3a56072768': 'coins', '5fc6e8b91dbabeb654e4eeb85964611633ad4a7581ba0b2dbdc91c38c3dd5063': 'settlers', '9f19421c46c6ed5c708bdc60b0a1bcfd557625cdc750eed67872132dd232f1b8': 'boost' };
+const BOOST_SETTLERS = 100, BOOST_COINS = 100000;
 const GIFT_KEY = 'hearthvale.gift', GIFT_COINS = 100000;
 const cleanSaveName = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 30);
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
@@ -284,6 +286,14 @@ async function redeemCode(raw) {
     saveNow(); renderHud();
     game.toast(`+${GIFT_COINS.toLocaleString('de-DE')} Münzen`);
     return { ok: `${GIFT_COINS.toLocaleString('de-DE')} Münzen gutgeschrieben.${note}` };
+  }
+  if (kind === 'boost') {
+    game.coins += BOOST_COINS; game.gift = true;
+    const n = game.addSettlers(BOOST_SETTLERS);
+    saveNow(); renderHud();
+    game.toast(`+${n} Siedler, +${BOOST_COINS.toLocaleString('de-DE')} Münzen`);
+    const meals = game.settlers.length + game.soldiers.length;
+    return { ok: `${n} neue Siedler sind eingezogen und ${BOOST_COINS.toLocaleString('de-DE')} Münzen gutgeschrieben. Alle zusammen essen jeden Abend ${meals} Portionen. Kauf Essen im Markt, sonst ziehen Hungrige wieder weg.${note}` };
   }
   // Siedler: alle freien Betten auf einmal
   const n = game.fillBeds();
