@@ -1,10 +1,10 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=11';
-import { Renderer } from './render.js?v=11';
-import { cellRand } from './world.js?v=11';
-import { Sound } from './audio.js?v=11';
+import { Game } from './sim.js?v=12';
+import { Renderer } from './render.js?v=12';
+import { cellRand } from './world.js?v=12';
+import { Sound } from './audio.js?v=12';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=11';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=12';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -880,7 +880,7 @@ function soundIcon() {
 }
 
 /* ---------- Schleife ---------- */
-let last = performance.now();
+let last = performance.now(), drawFailed = false;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
@@ -899,8 +899,11 @@ function frame(now) {
   R.follow(game, dt);
   const cr = $('world').getBoundingClientRect();
   const boxUi = box ? { x: Math.min(box.x0, box.x1) - cr.left, y: Math.min(box.y0, box.y1) - cr.top, w: Math.abs(box.x1 - box.x0), h: Math.abs(box.y1 - box.y0) } : null;
-  R.draw(game, { hover: modalOpen ? null : hover, ghost, selected, buildMode: !!buildType, sel: troopMode ? sel : null, box: boxUi, ping }, now / 1000);
-  R.drawMini(game, dt);
+  // ein Zeichenfehler darf Anzeige, Töne und Speichern nicht mitreißen
+  try {
+    R.draw(game, { hover: modalOpen ? null : hover, ghost, selected, buildMode: !!buildType, sel: troopMode ? sel : null, box: boxUi, ping }, now / 1000);
+    R.drawMini(game, dt);
+  } catch (e) { if (!drawFailed) { drawFailed = true; console.error(e); } }
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; renderHud(); }
   panelT -= dt; if (panelT <= 0) { panelT = 0.6; if (panelMode === 'building' || panelMode === 'tribe' || panelMode === 'troops') renderPanel(); }
   saveT -= dt; if (saveT <= 0) { saveT = 45; saveNow(); }

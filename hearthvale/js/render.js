@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=11';
-import { cellRand } from './world.js?v=11';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=12';
+import { cellRand } from './world.js?v=12';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -12,7 +12,8 @@ const SEASON = {
   canopy: [['#5aa83e', '#7cc35a'], ['#3e8a33', '#5aa648'], ['#d9822b', '#e8a44a'], null],
   pine:   ['#2f6b45', '#2a6340', '#3a6a45', '#2f5f42'],
 };
-const C = { dirt: '#b48a5c', path: '#cbb48c', soil: '#8b5e34', soilWet: '#5c3b20', mountain: '#80828a', mountainDark: '#5f6168', plank: '#a0703c', trunk: '#7a5230', wall: '#efe2c8', stoneWall: '#b9b3a7', door: '#6b4228', glow: 'rgba(255,214,120,0.95)', banner: '#c0392b', fog: [16, 22, 18] };
+const C = { dirt: '#b48a5c', path: '#cbb48c', soil: '#8b5e34', soilWet: '#5c3b20', mountain: '#80828a', mountainDark: '#5f6168', plank: '#a0703c', trunk: '#7a5230', wall: '#efe2c8', stoneWall: '#b9b3a7', door: '#6b4228', glow: 'rgba(255,214,120,0.95)', banner: '#c0392b', fog: [24, 30, 36] };
+const FOG_MAX = 0.6, FOG_EDGE = 5;   // Nebel: höchstens so deckend, Übergang über so viele Felder
 const STONE_TYPES = new Set(['quarry', 'mill', 'bakery', 'smelter', 'smithy', 'barracks']);
 
 function shade(hex, f) {
@@ -515,6 +516,7 @@ export class Renderer {
     const g = this.ctx, S = this.S, w = game.world, season = game.season;
     if (this.season !== season) { this.season = season; w.touchAll(); }
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.setLineDash([]);
     g.fillStyle = '#2b3a2a'; g.fillRect(0, 0, this.W, this.H);
     const ox = this.W / 2 - this.cam.x * S, oy = this.H / 2 - this.cam.y * S;
     const x0 = Math.max(0, Math.floor(this.cam.x - this.W / 2 / S) - 1), x1 = Math.min(w.w - 1, Math.ceil(this.cam.x + this.W / 2 / S) + 1);
@@ -541,14 +543,14 @@ export class Renderer {
     const list = [];
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const o = w.obj[y * w.w + x];
-      if (o && o.t !== 'crop') list.push({ y: y + 0.9, k: 'o', o, x, ty: y });
+      if (o && o.t !== 'crop' && (o.t !== 'chest' || w.seen[y * w.w + x])) list.push({ y: y + 0.9, k: 'o', o, x, ty: y });
     }
     for (const b of game.buildings) if (b.x + b.w >= x0 && b.x <= x1 && b.y + b.h >= y0 && b.y <= y1 + 2) list.push({ y: b.y + b.h - 0.05, k: 'b', b });
     for (const s of game.settlers) list.push({ y: s.y, k: 's', s });
     list.push({ y: game.player.y, k: 'p' });
     const inView = (e, m = 2) => e.x >= x0 - m && e.x <= x1 + m && e.y >= y0 - m && e.y <= y1 + m;
     for (const tr of game.tribes) {
-      if (tr.defeated || tr.hall.x > x1 + 2 || tr.hall.x + 3 < x0 - 6 || tr.hall.y > y1 + 2 || tr.hall.y + 3 < y0 - 6) continue;
+      if (tr.defeated || !w.seen[w.i(tr.cx, tr.cy)] || tr.hall.x > x1 + 2 || tr.hall.x + 3 < x0 - 6 || tr.hall.y > y1 + 2 || tr.hall.y + 3 < y0 - 6) continue;
       list.push({ y: tr.hall.y + 2.95, k: 'hall', tr });
       for (const h of tr.huts) list.push({ y: h.y + 1.95, k: 'tent', tr, h });
       const fx = tr.hall.x + 2.6, fy = tr.hall.y + 3.55;
@@ -560,7 +562,7 @@ export class Renderer {
       }
     }
     for (const s of game.soldiers) if (s.state !== 'garrison' && inView(s)) list.push({ y: s.y, k: 'm', s });
-    for (const f of game.foes) if (inView(f)) list.push({ y: f.y, k: 'f', f });
+    for (const f of game.foes) if (inView(f) && w.seen[w.i(Math.max(0, Math.min(w.w - 1, Math.floor(f.x))), Math.max(0, Math.min(w.h - 1, Math.floor(f.y))))]) list.push({ y: f.y, k: 'f', f });
     for (const sh of game.ships || []) if (inView(sh)) list.push({ y: sh.y, k: 'ship', sh });
     list.sort((a, c) => a.y - c.y);
     for (const d of list) {
@@ -663,6 +665,20 @@ export class Renderer {
       g.fillStyle = '#ffd25a'; g.beginPath(); g.moveTo(X, Y - S * 0.42); g.lineTo(X + S * 0.2, Y - S * 0.34 + Math.sin(t * 4 + X) * 1.5); g.lineTo(X, Y - S * 0.26); g.fill();
     }
   }
+  // Regen und Schnee über dem ganzen Bild (war seit dem großen Ausbau verloren gegangen:
+  // an Regen- und Schneetagen brach jedes Bild hier ab, ohne Nacht, Nebel, Anzeige und Speichern)
+  weatherFx(g, kind, t) {
+    const n = kind === 'rain' ? 140 : 90;
+    if (this.rain.length !== n) this.rain = Array.from({ length: n }, () => ({ x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8 }));
+    g.strokeStyle = 'rgba(200,220,255,0.5)'; g.fillStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 1;
+    for (const d of this.rain) {
+      if (kind === 'rain') { d.y += 0.02 * d.s; d.x -= 0.004 * d.s; } else { d.y += 0.004 * d.s; d.x += Math.sin(t + d.s * 10) * 0.0008; }
+      if (d.y > 1) { d.y -= 1; d.x = Math.random(); }
+      if (d.x < 0) d.x += 1;
+      const X = d.x * this.W, Y = d.y * this.H;
+      if (kind === 'rain') { g.beginPath(); g.moveTo(X, Y); g.lineTo(X - 3, Y + 10); g.stroke(); } else { g.beginPath(); g.arc(X, Y, 1.6 * d.s, 0, 7); g.fill(); }
+    }
+  }
   drawBorders(g, game, ox, oy, S, x0, x1, y0, y1) {
     const b = game.borders;
     if (!b) return;
@@ -691,32 +707,54 @@ export class Renderer {
     if (last !== -1) g.stroke();
     g.setLineDash([]);
   }
+  // Nebel über Unerkundetem: halb durchsichtig, wird zum Rand hin über einige Felder schwächer.
+  // Die Deckkraft liegt im Speicher (fogImg); jedes Bild lädt nur den sichtbaren Ausschnitt in eine kleine
+  // Leinwand und zieht ihn auf Bildschirmgröße. Ein riesig vergrößertes Bild über die ganze Karte
+  // oder eine nur einmal gefüllte Leinwand lässt Safari sonst irgendwann einfach weg.
   drawFog(g, game, ox, oy, S) {
-    const w = game.world, F = w.w * w.h > 40000 ? 3 : 4;
-    if (!this.fogSm || this.fogSm.width !== w.w + 2 || this.fogSm.height !== w.h + 2 || this.fogBig.width !== (w.w + 2) * F) {
-      this.fogSm = document.createElement('canvas'); this.fogSm.width = w.w + 2; this.fogSm.height = w.h + 2;
-      this.fogBig = document.createElement('canvas'); this.fogBig.width = (w.w + 2) * F; this.fogBig.height = (w.h + 2) * F;
-      this.fogKey = null;
+    const w = game.world, W2 = w.w + 2, H2 = w.h + 2;
+    if (!this.fogSm || this.fogSm.width !== W2 || this.fogSm.height !== H2) {
+      this.fogSm = document.createElement('canvas'); this.fogSm.width = W2; this.fogSm.height = H2;
+      this.fogImg = this.fogSm.getContext('2d').createImageData(W2, H2);
+      this.fogDist = new Float32Array(W2 * H2); this.fogKey = null;
     }
-    const key = game.fogVer + ':' + game.seed;
-    if (this.fogKey !== key || this.fogWorld !== w) {
-      const W2 = w.w + 2, H2 = w.h + 2, fc = this.fogSm.getContext('2d'), img = fc.createImageData(W2, H2), d = img.data;
+    // neu berechnen, wenn mehr erkundet ist, aber höchstens viermal pro Sekunde (Siedler decken laufend auf)
+    const key = game.fogVer + ':' + game.seed, now = performance.now();
+    if (this.fogWorld !== w || (this.fogKey !== key && !(now - this.fogAt < 250))) {
+      // Abstand jedes Felds zum nächsten erkundeten Feld (zwei Durchgänge, schräg √2)
+      const D = this.fogDist, INF = 1e6, R2 = 1.414;
       for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-        const i4 = (y * W2 + x) * 4, inside = x > 0 && y > 0 && x <= w.w && y <= w.h;
-        d[i4] = C.fog[0]; d[i4 + 1] = C.fog[1]; d[i4 + 2] = C.fog[2];
-        d[i4 + 3] = inside && w.seen[(y - 1) * w.w + x - 1] ? 0 : 255;
+        const inside = x > 0 && y > 0 && x <= w.w && y <= w.h;
+        D[y * W2 + x] = inside && w.seen[(y - 1) * w.w + x - 1] ? 0 : INF;
       }
-      fc.putImageData(img, 0, 0);
-      const bg = this.fogBig.getContext('2d');
-      bg.clearRect(0, 0, this.fogBig.width, this.fogBig.height);
-      bg.imageSmoothingEnabled = true;
-      bg.filter = 'blur(3px)';
-      bg.drawImage(this.fogSm, 0, 0, this.fogBig.width, this.fogBig.height);
-      bg.filter = 'none';
-      this.fogKey = key; this.fogWorld = w;
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        const i = y * W2 + x; let v = D[i];
+        if (!v) continue;
+        if (x > 0) v = Math.min(v, D[i - 1] + 1);
+        if (y > 0) { v = Math.min(v, D[i - W2] + 1); if (x > 0) v = Math.min(v, D[i - W2 - 1] + R2); if (x < W2 - 1) v = Math.min(v, D[i - W2 + 1] + R2); }
+        D[i] = v;
+      }
+      for (let y = H2 - 1; y >= 0; y--) for (let x = W2 - 1; x >= 0; x--) {
+        const i = y * W2 + x; let v = D[i];
+        if (!v) continue;
+        if (x < W2 - 1) v = Math.min(v, D[i + 1] + 1);
+        if (y < H2 - 1) { v = Math.min(v, D[i + W2] + 1); if (x < W2 - 1) v = Math.min(v, D[i + W2 + 1] + R2); if (x > 0) v = Math.min(v, D[i + W2 - 1] + R2); }
+        D[i] = v;
+      }
+      const d = this.fogImg.data;
+      for (let i = 0; i < W2 * H2; i++) {
+        const t = Math.min(1, D[i] / FOG_EDGE), a = FOG_MAX * t * t * (3 - 2 * t);
+        d[i * 4] = C.fog[0]; d[i * 4 + 1] = C.fog[1]; d[i * 4 + 2] = C.fog[2]; d[i * 4 + 3] = Math.round(a * 255);
+      }
+      this.fogKey = key; this.fogWorld = w; this.fogAt = now;
     }
+    const vw = this.W / S, vh = this.H / S;
+    const left = Math.max(-1, Math.floor(this.cam.x - vw / 2) - 1), top = Math.max(-1, Math.floor(this.cam.y - vh / 2) - 1);
+    const right = Math.min(w.w + 1, Math.ceil(this.cam.x + vw / 2) + 1), bottom = Math.min(w.h + 1, Math.ceil(this.cam.y + vh / 2) + 1);
+    if (right <= left || bottom <= top) return;
+    this.fogSm.getContext('2d').putImageData(this.fogImg, 0, 0, left + 1, top + 1, right - left, bottom - top);
     g.imageSmoothingEnabled = true;
-    g.drawImage(this.fogBig, ox - S, oy - S, (w.w + 2) * S, (w.h + 2) * S);
+    g.drawImage(this.fogSm, left + 1, top + 1, right - left, bottom - top, ox + left * S, oy + top * S, (right - left) * S, (bottom - top) * S);
   }
   /* ---------- Minikarte ---------- */
   drawMini(game, dt) {
@@ -737,7 +775,7 @@ export class Renderer {
       const tree = col(s === 3 ? '#8a9a8a' : '#2f6b3a'), rock = col('#9aa0a8'), chest = col('#f2b84b');
       for (let k = 0; k < w.w * w.h; k++) {
         const o = w.obj[k], i4 = k * 4;
-        if (!w.seen[k]) { img.data[i4] = 12; img.data[i4 + 1] = 17; img.data[i4 + 2] = 14; img.data[i4 + 3] = 255; continue; }
+        if (!w.seen[k]) { const c0 = pal[w.ground[k]] || [0, 0, 0]; img.data[i4] = 14 + c0[0] * 0.3; img.data[i4 + 1] = 18 + c0[1] * 0.3; img.data[i4 + 2] = 22 + c0[2] * 0.3; img.data[i4 + 3] = 255; continue; }
         const c = o && o.t === 'tree' ? tree : o && o.t === 'rock' ? rock : o && o.t === 'chest' ? chest : pal[w.ground[k]] || [0, 0, 0];
         const mine = w.land[k] === 1 ? 0.14 : 0;
         img.data[i4] = c[0] + (255 - c[0]) * mine; img.data[i4 + 1] = c[1] + (240 - c[1]) * mine; img.data[i4 + 2] = c[2] + (190 - c[2]) * mine; img.data[i4 + 3] = 255;
