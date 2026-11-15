@@ -1,8 +1,8 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=8';
-import { Renderer } from './render.js?v=8';
-import { cellRand } from './world.js?v=8';
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=8';
+import { Game } from './sim.js?v=9';
+import { Renderer } from './render.js?v=9';
+import { cellRand } from './world.js?v=9';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand

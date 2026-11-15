@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=8';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=8';
-import { Realm } from './realm.js?v=8';
+} from './data.js?v=9';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=9';
+import { Realm } from './realm.js?v=9';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 // Bäume (1–20), Felsen (21–22) und Sträucher (23–27) passen in ein Byte
@@ -180,31 +180,57 @@ export class Game {
     if (!this.stillConnected(x, y, def.w, def.h)) return 'So wären Türen oder du selbst eingesperrt. Lass einen Weg frei.';
     return null;
   }
-  // Prüft, ob nach dem Bauen alle Türen und der Spieler noch zusammenhängend erreichbar sind
+  // Sperrt das neue Gebäude etwas ein? Geprüft wird nur die Umgebung des Bauplatzes: Felder rund um den
+  // Bauplatz, die vorher zusammenhingen, müssen es danach noch tun, sofern sie zu Türen, zu dir oder aus der
+  // Umgebung hinaus führen. So stören Gebäude, die nur per Boot erreichbar sind, nicht mehr.
   stillConnected(bx, by, bw, bh) {
-    const w = this.world, W = w.w;
+    const w = this.world, R = 6;
     const inFoot = (x, y) => x >= bx && x < bx + bw && y >= by && y < by + bh;
-    const ok = (x, y) => w.walkable(x, y) && !inFoot(x, y);
-    const targets = this.buildings.map((b) => this.door(b));
-    if (targets.some((t) => inFoot(t.x, t.y))) return false;   // eine Tür zubauen geht nie
-    targets.push({ x: bx + (bw >> 1), y: by + bh });
-    const p = { x: Math.floor(this.player.x), y: Math.floor(this.player.y) };
-    if (ok(p.x, p.y)) targets.push(p);
-    const start = targets.find((t) => ok(t.x, t.y));
-    if (!start) return false;
-    const seen = new Uint8Array(W * w.h), q = [start.y * W + start.x];
-    seen[q[0]] = 1;
-    while (q.length) {
-      const c = q.pop(), cx = c % W, cy = (c / W) | 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        if (!dx && !dy) continue;
-        const nx = cx + dx, ny = cy + dy;
-        if (!ok(nx, ny) || seen[ny * W + nx]) continue;
-        if (dx && dy && (!ok(cx + dx, cy) || !ok(cx, cy + dy))) continue;
-        seen[ny * W + nx] = 1; q.push(ny * W + nx);
+    if (this.buildings.some((b) => { const d = this.door(b); return inFoot(d.x, d.y); })) return false;   // eine Tür zubauen geht nie
+    const x0 = bx - R, y0 = by - R, WW = bw + 2 * R, HH = bh + 2 * R;
+    const inWin = (x, y) => x >= x0 && y >= y0 && x < x0 + WW && y < y0 + HH;
+    const label = (blockFoot) => {
+      const lab = new Int16Array(WW * HH).fill(-1);
+      const ok = (x, y) => inWin(x, y) && w.walkable(x, y) && !(blockFoot && inFoot(x, y));
+      let id = 0;
+      for (let yy = 0; yy < HH; yy++) for (let xx = 0; xx < WW; xx++) {
+        if (lab[yy * WW + xx] >= 0 || !ok(x0 + xx, y0 + yy)) continue;
+        const q = [yy * WW + xx]; lab[q[0]] = id;
+        while (q.length) {
+          const c = q.pop(), cx = x0 + (c % WW), cy = y0 + ((c / WW) | 0);
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = cx + dx, ny = cy + dy;
+            if (!ok(nx, ny) || (dx && dy && (!ok(cx + dx, cy) || !ok(cx, cy + dy)))) continue;
+            const k = (ny - y0) * WW + (nx - x0);
+            if (lab[k] >= 0) continue;
+            lab[k] = id; q.push(k);
+          }
+        }
+        id++;
       }
+      return lab;
+    };
+    const before = label(false), after = label(true);
+    const idx = (x, y) => (y - y0) * WW + (x - x0);
+    // wichtig sind Gruppen, die aus der Umgebung hinaus führen oder eine Tür bzw. dich enthalten
+    const relevant = new Set();
+    const mark = (x, y) => { if (inWin(x, y) && after[idx(x, y)] >= 0) relevant.add(after[idx(x, y)]); };
+    for (let xx = 0; xx < WW; xx++) { mark(x0 + xx, y0); mark(x0 + xx, y0 + HH - 1); }
+    for (let yy = 0; yy < HH; yy++) { mark(x0, y0 + yy); mark(x0 + WW - 1, y0 + yy); }
+    for (const b of this.buildings) { const d = this.door(b); mark(d.x, d.y); }
+    mark(bx + (bw >> 1), by + bh);
+    mark(Math.floor(this.player.x), Math.floor(this.player.y));
+    const groups = new Map();
+    for (let y = by - 1; y <= by + bh; y++) for (let x = bx - 1; x <= bx + bw; x++) {
+      if (inFoot(x, y)) continue;
+      const k = idx(x, y), a2 = after[k];
+      if (a2 < 0 || !relevant.has(a2)) continue;
+      const b0 = before[k];
+      if (!groups.has(b0)) groups.set(b0, a2);
+      else if (groups.get(b0) !== a2) return false;
     }
-    return targets.every((t) => !ok(t.x, t.y) || seen[t.y * W + t.x]);
+    return true;
   }
   place(type, x, y) {
     const def = BUILDINGS[type];
