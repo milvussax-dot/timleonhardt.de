@@ -97,6 +97,31 @@ button { font: inherit; color: inherit; }
 .star.on { background: var(--star); }
 .map-foot { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
 
+/* Bestenliste */
+.lb { background: var(--panel); border: 2px solid var(--rule); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.lb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.lb-head h2 { margin: 0; font: 700 19px/1.2 var(--font); }
+.lb-head span { font-size: 13px; color: var(--muted); }
+.lb-list { list-style: none; margin: 0 -8px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 18px; }
+.lb-list li { display: grid; grid-template-columns: 2.4ch minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; }
+.lb-list li.me { background: #fff1c2; }
+.lb-rank { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.lb-list li:nth-child(-n+3) .lb-rank { color: var(--star); }
+.lb-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px; }
+.lb-list li.lb-empty { display: block; color: var(--muted); grid-column: 1 / -1; }
+.lb-form { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.lb-form label { font-size: 14px; font-weight: 500; }
+.lb-row { display: flex; gap: 8px; }
+.lb-row input { flex: 1; min-width: 0; font: 500 16px/1.2 var(--font); padding: 11px 12px; border-radius: 10px; border: 2px solid var(--rule); background: #fff; color: var(--ink); }
+.lb-row input:focus { border-color: var(--blue); outline: none; }
+.lb-msg, .lb-status, .lb-mine, .lb-me { margin: 0; font-size: 13px; color: var(--muted); }
+.lb-me b, .lb-mine b { color: var(--ink); }
+.lb-msg:empty { display: none; }
+.link { background: none; border: 0; padding: 0; color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: underline; font-size: inherit; }
+.win-rank { font-weight: 700; color: var(--ink) !important; }
+@media (min-width: 600px) { .lb-list { grid-template-columns: 1fr 1fr; grid-auto-flow: column; grid-template-rows: repeat(5, auto); } }
+
 /* ---------- Play view ---------- */
 .bar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -175,8 +200,20 @@ button { font: inherit; color: inherit; }
         <span class="total" id="totalStars"><span class="star on"></span> 0 / 90</span>
       </div>
     </header>
+    <section class="lb" aria-labelledby="lbTitle">
+      <div class="lb-head"><h2 id="lbTitle">Bestenliste</h2><span>Sterne · alle Spieler</span></div>
+      <ol class="lb-list" id="lbList"><li class="lb-empty">Bestenliste lädt …</li></ol>
+      <p class="lb-mine" id="lbMine" hidden></p>
+      <form class="lb-form" id="lbForm" hidden novalidate>
+        <label for="lbName">Dein Name für die Bestenliste</label>
+        <div class="lb-row"><input id="lbName" type="text" maxlength="16" autocomplete="nickname" spellcheck="false" enterkeyhint="done" placeholder="z. B. Eisfuchs"><button class="btn btn-primary" type="submit">Speichern</button></div>
+        <p class="lb-msg" id="lbMsg" role="status"></p>
+      </form>
+      <p class="lb-me" id="lbMe" hidden>Du spielst als <b id="lbMeName"></b>. <button type="button" class="link" id="lbRename">Ändern</button></p>
+      <p class="lb-status" id="lbStatus"></p>
+    </section>
     <div id="worlds"></div>
-    <p class="map-foot">Immer drei ungelöste Level sind offen. Dein Fortschritt bleibt auf diesem Gerät gespeichert.</p>
+    <p class="map-foot">Immer drei ungelöste Level sind offen. Deine gelösten Level bleiben auf diesem Gerät gespeichert, deine Sterne stehen in der Bestenliste.</p>
   </div>
 </section>
 
@@ -195,6 +232,7 @@ button { font: inherit; color: inherit; }
         <h2 id="winTitle">Geschafft!</h2>
         <div class="big-stars" id="winStars"><span class="star"></span><span class="star"></span><span class="star"></span></div>
         <p id="winText">4 Züge</p>
+        <p class="win-rank" id="winRank" hidden></p>
         <div class="row">
           <button class="btn btn-ghost" id="againBtn" type="button">Nochmal</button>
           <button class="btn btn-primary" id="nextBtn" type="button">Weiter <span class="key">Enter</span></button>
@@ -221,6 +259,8 @@ button { font: inherit; color: inherit; }
   </div>
 </section>
 
+<script src="../lb-config.js"></script>
+<script src="../lb.js"></script>
 <script>
 (() => {
   'use strict';
@@ -537,19 +577,19 @@ button { font: inherit; color: inherit; }
     // stone
     let px, py, scale = 1, alpha = 1;
     if (anim) {
-      const path = anim.res.path, i = Math.min(path.length - 2, Math.floor(anim.prog)), f = Math.min(1, anim.prog - i);
+      const path = anim.res.path, i = Math.max(0, Math.min(path.length - 2, Math.floor(anim.prog))), f = Math.max(0, Math.min(1, anim.prog - i));
       const [ax, ay] = cellCenter(path[i]), [bx, by] = cellCenter(path[i + 1]);
       px = ax + (bx - ax) * f; py = ay + (by - ay) * f;
     } else if (sink) {
       [px, py] = cellCenter(sink.at);
-      const k = Math.min(1, (now - sink.t0) / 380);
+      const k = Math.max(0, Math.min(1, (now - sink.t0) / 380));
       scale = 1 - 0.55 * k; alpha = 1 - k;
     } else {
       [px, py] = cellCenter(st);
     }
     drawStone(px, py, scale, alpha);
     if (sink) {
-      const k = Math.min(1, (now - sink.t0) / 600);
+      const k = Math.max(0, Math.min(1, (now - sink.t0) / 600));
       ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(px, py, cell * (0.15 + k * 0.45), 0, Math.PI * 2); ctx.stroke();
     }
@@ -662,6 +702,14 @@ button { font: inherit; color: inherit; }
       progress[L.no] = { stars: Math.max(stars, prev ? prev.stars : 0), moves: Math.min(moves, prev ? prev.moves : Infinity) };
       store.set('rutsch.progress', progress);
     }
+    $('winRank').hidden = true;
+    pushTotals().then((me) => {
+      if (!finished) return;
+      if (me) $('winRank').textContent = `Bestenliste: Platz ${me.rank} mit ${me.score} Sternen`;
+      else if (ONLINE && !TB.getName()) $('winRank').textContent = 'Gib in der Levelübersicht einen Namen ein, dann stehst du in der Bestenliste.';
+      else return;
+      $('winRank').hidden = false;
+    });
     const [cx, cy] = cellCenter(st);
     burst(cx, cy, C.red, 14); burst(cx, cy, C.blue, 14); burst(cx, cy, '#f2a900', 10);
     sfx.win();
@@ -680,6 +728,85 @@ button { font: inherit; color: inherit; }
       $('nextBtn').focus({ preventScroll: true });
     }, reduceMotion ? 100 : 550);
   }
+
+  /* ---------- Bestenliste (gemeinsam für alle Spiele, ../lb.js) ---------- */
+  const BOARD = 'rutschpartie';
+  const TB = window.TLBoard || null;
+  const ONLINE = !!(TB && TB.configured);
+  const LBS = { mode: ONLINE ? 'loading' : 'off', rows: [], me: null, busy: false, renaming: false };
+
+  function totals() {
+    let stars = 0, over = 0;
+    for (const k in progress) {
+      const p = progress[k], lv = LV[Number(k) - 1];
+      if (!p || !lv) continue;
+      stars += p.stars; over += Math.max(0, p.moves - lv.par);
+    }
+    return { stars, over };
+  }
+
+  function renderLb() {
+    const ol = $('lbList');
+    ol.replaceChildren();
+    if (!LBS.rows.length) {
+      const li = document.createElement('li'); li.className = 'lb-empty';
+      li.textContent = LBS.mode === 'loading' ? 'Bestenliste lädt …'
+        : LBS.mode === 'offline' ? 'Die Bestenliste ist gerade nicht erreichbar.'
+        : LBS.mode === 'off' ? 'Die Bestenliste ist noch nicht verbunden.'
+        : 'Noch niemand eingetragen. Löse ein Level und sichere dir Platz 1.';
+      ol.append(li);
+    } else {
+      LBS.rows.forEach((r, i) => {
+        const li = document.createElement('li'); if (r.me) li.className = 'me';
+        const rank = document.createElement('span'); rank.className = 'lb-rank'; rank.textContent = i + 1;
+        const name = document.createElement('span'); name.className = 'lb-name'; name.textContent = r.name;
+        const sc = document.createElement('span'); sc.className = 'lb-score'; sc.append(star(true), document.createTextNode(String(r.score)));
+        li.append(rank, name, sc); ol.append(li);
+      });
+    }
+    const mine = $('lbMine');
+    if (LBS.me && !LBS.rows.some((r) => r.me)) { mine.hidden = false; mine.innerHTML = ''; mine.append('Du: Platz ', Object.assign(document.createElement('b'), { textContent: LBS.me.rank }), ` mit ${LBS.me.score} Sternen`); }
+    else mine.hidden = true;
+    const name = TB ? TB.getName() : '';
+    $('lbForm').hidden = !ONLINE || (!!name && !LBS.renaming);
+    $('lbMe').hidden = !ONLINE || !name || LBS.renaming;
+    $('lbMeName').textContent = name;
+    $('lbStatus').textContent = { loading: 'Verbinde …', live: '', offline: 'Keine Verbindung zur Bestenliste.', off: '' }[LBS.mode] || '';
+  }
+
+  async function refreshLb() {
+    if (!ONLINE || LBS.busy) return;
+    LBS.busy = true;
+    try {
+      const d = await TB.board(BOARD, 10);
+      LBS.rows = d.top.map((r) => ({ name: r.name, score: Math.round(r.score), me: r.me }));
+      LBS.me = d.me ? { score: Math.round(d.me.score), rank: d.me.rank } : null;
+      LBS.mode = 'live';
+    } catch (e) { LBS.mode = 'offline'; }
+    finally { LBS.busy = false; if (!$('mapView').hidden) renderLb(); }
+  }
+
+  // Trägt die aktuelle Sternzahl ein (wenn ein Name gesetzt ist) und liefert den eigenen Platz.
+  async function pushTotals() {
+    if (!ONLINE) return null;
+    const name = TB.getName(), t = totals();
+    if (!name || t.stars < 1) return null;
+    try { await TB.submit(BOARD, name, t.stars, t.over); } catch (e) { return null; }
+    await refreshLb();
+    return LBS.me;
+  }
+
+  $('lbForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = TB.cleanName($('lbName').value);
+    if (!name) { $('lbMsg').textContent = 'Gib einen Namen ein.'; return; }
+    TB.setName(name);
+    LBS.renaming = false;
+    $('lbMsg').textContent = '';
+    renderLb();
+    if (totals().stars > 0) await pushTotals();
+  });
+  $('lbRename').addEventListener('click', () => { LBS.renaming = true; renderLb(); $('lbName').value = TB.getName(); $('lbName').focus(); });
 
   /* ---------- Level map ---------- */
   const solvedCount = () => Object.keys(progress).filter((k) => progress[k] && progress[k].stars > 0).length;
@@ -728,7 +855,7 @@ button { font: inherit; color: inherit; }
   function showView(v) {
     $('mapView').hidden = v !== 'map';
     $('playView').hidden = v !== 'play';
-    if (v === 'map') { L = null; renderMap(); }
+    if (v === 'map') { L = null; renderMap(); renderLb(); refreshLb(); }
   }
 
   /* ---------- Input ---------- */
@@ -782,9 +909,11 @@ button { font: inherit; color: inherit; }
   /* ---------- Loop ---------- */
   let lastT = performance.now();
   function frame(now) {
-    const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+    requestAnimationFrame(frame);   // keep the loop alive even if a frame throws
+    const dt = Math.max(0, Math.min(0.05, (now - lastT) / 1000)); lastT = now;
     if (anim) {
-      const k = Math.min(1, (now - anim.t0) / anim.dur);
+      // rAF timestamps can be a few ms older than the key press that started the move
+      const k = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur));
       const eased = 1 - Math.pow(1 - k, 1.7);
       anim.prog = eased * (anim.res.path.length - 1);
       anim.res.gemAt.forEach(([gi, step]) => {
@@ -805,7 +934,6 @@ button { font: inherit; color: inherit; }
       p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
     }
     if (L) draw(now);
-    requestAnimationFrame(frame);
   }
 
   renderMute();

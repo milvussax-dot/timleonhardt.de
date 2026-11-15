@@ -10,6 +10,7 @@ import { BotBrain, BOT_PROFILES, BOT_DIFFS, computePar } from './bot.js';
 import { clamp, lerp, mulberry32, shuffle, wrapAngle } from './rng.js';
 import { timeMedal, scoreMedal, distMedal } from './medals.js';
 import { checkChallenges } from './challenges.js';
+import { OnlineBoard } from './online-board.js';
 
 export const MODES = [
   { id: 'zeit', name: 'Zeitfahren', desc: 'Jag deine Bestzeit. Dein Ghost fährt mit.', course: 'race' },
@@ -393,6 +394,7 @@ export class Session {
       res.boardKey = key;
       const sub = app.store.submit(key, value, lower, { w: this.cfg.weather, m: mode });
       res.pb = sub.pb; res.prev = sub.prev; res.rank = sub.rank;
+      res.onlineSubmit = OnlineBoard.submit(app.store, key, mode, value);
       res.newMedal = app.store.setMedal(key, res.medal);
       if (sub.pb && this.rec && this.rec.length && (mode === 'zeit' || mode === 'slalom' || mode === 'bots')) {
         app.store.saveGhost(key, { time: value, hz: GHOST_HZ, stride: STRIDE, data: new Float32Array(this.rec) });

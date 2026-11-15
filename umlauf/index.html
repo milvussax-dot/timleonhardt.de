@@ -206,7 +206,7 @@ kbd {
         <form class="name-form" id="nameForm" hidden novalidate>
           <label class="field-label" for="nickInput">Name für die Bestenliste</label>
           <div class="field-row">
-            <input id="nickInput" name="nick" type="text" maxlength="14" autocomplete="nickname" spellcheck="false" enterkeyhint="done" placeholder="z. B. Kometa">
+            <input id="nickInput" name="nick" type="text" maxlength="16" autocomplete="nickname" spellcheck="false" enterkeyhint="done" placeholder="z. B. Kometa">
             <button class="btn btn-primary" id="submitBtn" type="submit">Eintragen</button>
           </div>
           <p class="msg" id="formMsg" role="status"></p>
@@ -226,7 +226,8 @@ kbd {
 </main>
 <noscript><p style="position:fixed;inset:auto 16px 16px;color:#eef3ff">Umlauf braucht JavaScript.</p></noscript>
 
-<script src="config.js"></script>
+<script src="../lb-config.js"></script>
+<script src="../lb.js"></script>
 <script>
 (() => {
   'use strict';
@@ -248,7 +249,7 @@ kbd {
     get(k, d) { try { const s = localStorage.getItem(k); return s == null ? d : JSON.parse(s); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
-  const KEY = { best: 'umlauf.best', nick: 'umlauf.nick', muted: 'umlauf.muted', local: 'umlauf.local', player: 'umlauf.player' };
+  const KEY = { best: 'umlauf.best', muted: 'umlauf.muted' };
 
   const norm = (a) => ((a % TAU) + TAU) % TAU;
   const angDist = (a, b) => { const d = norm(a - b); return d > Math.PI ? TAU - d : d; };
@@ -666,51 +667,14 @@ kbd {
   }
 
   /* ---------- Leaderboard ----------
-     Online: Supabase, nur über zwei Datenbankfunktionen (umlauf_board, umlauf_submit).
-     Jedes Gerät hat eine geheime Spieler-ID und damit genau einen Eintrag, der nur steigen kann.
-     Ohne Konfiguration in config.js bleibt die Liste auf dem eigenen Gerät. */
-  const CFG = window.UMLAUF_CONFIG || {};
-  const API = String(CFG.supabaseUrl || '').trim().replace(/\/+$/, '');
-  const API_KEY = String(CFG.supabaseKey || '').trim();
-  const ONLINE = /^https:\/\//.test(API) && API_KEY.length > 20;
-
-  const LB = { mode: ONLINE ? 'loading' : 'local', rows: [], me: null, myBest: 0, lastLocalId: null, refreshing: false };
+     Gemeinsame Online-Bestenliste für alle Spiele der Seite (../lb.js, Liste "umlauf").
+     Jedes Gerät hat genau einen Eintrag, der nur steigen kann. */
+  const BOARD = 'umlauf';
+  const TB = window.TLBoard || null;
+  const ONLINE = !!(TB && TB.configured);
+  const LB = { mode: ONLINE ? 'loading' : 'off', rows: [], me: null, myBest: 0, refreshing: false };
   const bestScore = () => Math.max(Number(store.get(KEY.best, 0)) || 0, LB.myBest);
-  const cleanNick = (s) => String(s || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
-  const cleanScore = (n) => Math.max(0, Math.min(99999, Math.floor(Number(n) || 0)));
-
-  let playerIdCache = null;
-  function playerId() {
-    if (playerIdCache) return playerIdCache;
-    let id = store.get(KEY.player, '');
-    if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      if (window.crypto && crypto.randomUUID) id = crypto.randomUUID();
-      else {
-        const b = crypto.getRandomValues(new Uint8Array(16));
-        b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
-        const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-        id = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-      }
-      store.set(KEY.player, id);
-    }
-    playerIdCache = id;
-    return id;
-  }
-
-  async function rpc(fn, body) {
-    const headers = { 'Content-Type': 'application/json', apikey: API_KEY };
-    if (API_KEY.startsWith('eyJ')) headers.Authorization = 'Bearer ' + API_KEY;  // legacy anon key
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 10000);
-    try {
-      const res = await fetch(`${API}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(body), signal: ctl.signal });
-      if (!res.ok) { const err = new Error(`HTTP ${res.status}`); err.status = res.status; throw err; }
-      const text = await res.text();
-      return text ? JSON.parse(text) : null;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+  const cleanNick = (s) => (TB ? TB.cleanName(s) : String(s || '').trim().slice(0, 16));
 
   function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
 
@@ -720,6 +684,7 @@ kbd {
     if (!LB.rows.length) {
       const msg = LB.mode === 'loading' ? 'Bestenliste lädt …'
         : LB.mode === 'offline' ? 'Die Bestenliste ist gerade nicht erreichbar. Spielen geht trotzdem.'
+        : LB.mode === 'off' ? 'Die Bestenliste ist noch nicht verbunden.'
         : 'Noch keine Einträge. Spiel eine Runde und hol dir Platz 1.';
       ol.append(el('li', 'board-empty', msg));
     } else {
@@ -740,8 +705,8 @@ kbd {
     const labels = {
       loading: 'Verbinde …',
       live: 'Live · alle sehen dieselbe Liste',
-      local: 'Nur auf diesem Gerät gespeichert',
       offline: LB.rows.length ? 'Keine Verbindung · vielleicht nicht aktuell' : 'Keine Verbindung',
+      off: 'Noch nicht verbunden',
     };
     st.textContent = labels[LB.mode] || '';
     st.dataset.mode = LB.mode;
@@ -752,15 +717,10 @@ kbd {
     if (!ONLINE || LB.refreshing) return;
     LB.refreshing = true;
     try {
-      const data = await rpc('umlauf_board', { p_player: playerId() });
-      const top = data && Array.isArray(data.top) ? data.top : [];
-      LB.rows = top.map((r) => ({ nick: cleanNick(r && r.name) || 'Anonym', score: cleanScore(r && r.score), me: !!(r && r.me) }));
-      const me = data && data.me;
-      LB.me = me ? { score: cleanScore(me.score), rank: Math.max(1, Math.floor(Number(me.rank) || 1)), nick: cleanNick(me.name) } : null;
-      if (LB.me) {
-        LB.myBest = Math.max(LB.myBest, LB.me.score);
-        if (!store.get(KEY.nick, '') && LB.me.nick) store.set(KEY.nick, LB.me.nick);
-      }
+      const d = await TB.board(BOARD, 10);
+      LB.rows = d.top.map((r) => ({ nick: r.name, score: Math.floor(r.score), me: r.me }));
+      LB.me = d.me ? { score: Math.floor(d.me.score), rank: d.me.rank } : null;
+      if (LB.me) LB.myBest = Math.max(LB.myBest, LB.me.score);
       LB.mode = 'live';
     } catch (e) {
       LB.mode = 'offline';
@@ -770,36 +730,15 @@ kbd {
     }
   }
 
-  function loadLocal() {
-    const list = (store.get(KEY.local, []) || []).filter((r) => r && typeof r.score === 'number').slice(0, 10);
-    LB.rows = list.map((r) => ({ nick: cleanNick(r.nick) || 'Anonym', score: cleanScore(r.score), me: r.id === LB.lastLocalId }));
-  }
-
-  function qualifiesLocal(score) {
-    const list = store.get(KEY.local, []) || [];
-    return list.length < 10 || score > ((list[list.length - 1] && list[list.length - 1].score) || 0);
-  }
-
   async function submitScore(nick, score) {
-    store.set(KEY.nick, nick);
-    if (!ONLINE) {
-      const list = (store.get(KEY.local, []) || []).filter((r) => r && typeof r.score === 'number');
-      const id = 'l' + Date.now().toString(36);
-      list.push({ id, nick, score, at: Date.now() });
-      list.sort((a, b) => b.score - a.score || a.at - b.at);
-      store.set(KEY.local, list.slice(0, 10));
-      LB.lastLocalId = id;
-      loadLocal();
-      renderBoard();
-      return { ok: true };
-    }
+    if (!ONLINE) return { ok: false, msg: 'Die Bestenliste ist noch nicht verbunden.' };
     try {
-      await rpc('umlauf_submit', { p_player: playerId(), p_name: nick, p_score: score });
+      await TB.submit(BOARD, nick, score);
       LB.myBest = Math.max(LB.myBest, score);
       await refreshBoard();
       return { ok: true };
     } catch (e) {
-      if (e && e.status >= 400 && e.status < 500) return { ok: false, msg: 'Das hat die Bestenliste nicht angenommen. Versuch einen anderen Namen.' };
+      if (e && e.code === 'rejected') return { ok: false, msg: 'Das hat die Bestenliste nicht angenommen. Versuch einen anderen Namen.' };
       return { ok: false, msg: 'Keine Verbindung zur Bestenliste. Versuch es gleich nochmal.' };
     }
   }
@@ -831,10 +770,10 @@ kbd {
 
     submitted = false; busy = false;
     formMsg.textContent = ''; overNote.hidden = true;
-    const canEnter = S.score > 0 && (ONLINE ? S.score > LB.myBest : qualifiesLocal(S.score));
+    const canEnter = ONLINE && S.score > 0 && S.score > LB.myBest;
     nameForm.hidden = !canEnter;
     submitBtn.disabled = false;
-    if (canEnter) nickInput.value = store.get(KEY.nick, '') || '';
+    if (canEnter) nickInput.value = TB ? TB.getName() : '';
     setAgainStyle(!canEnter);
     refreshBoard();
   }
@@ -929,7 +868,8 @@ kbd {
   resize();
   placeSpark(true);
   renderMute();
-  if (ONLINE) { renderBoard(); refreshBoard(); } else { loadLocal(); renderBoard(); }
+  renderBoard();
+  refreshBoard();
   if (document.fonts && document.fonts.load) {
     document.fonts.load('500 10px "IBM Plex Mono"').then(paintBackground).catch(() => {});
   }

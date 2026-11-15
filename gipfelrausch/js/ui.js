@@ -7,6 +7,7 @@ import { MODES, modeById, boardKey } from './game.js';
 import { dailyState } from './challenges.js';
 import { ONLINE_MODES, higherIsBetter } from './net.js';
 import { fmtTime, fmtDelta, escapeHtml as esc } from './rng.js';
+import { OnlineBoard } from './online-board.js';
 import { computePar } from './bot.js';
 import { Course } from './course.js';
 
@@ -34,6 +35,11 @@ function routeInfo(t) {
   const choices = r.filter((x) => ['split2', 'split3', 'terraces', 'chasm', 'creek', 'bowl'].includes(x)).length;
   const max = r.includes('split3') ? 3 : 2;
   return `${choices}× Wegwahl · bis zu ${max} Wege · ${[...new Set(r)].map((x) => SEC_LABEL[x] || x).join(' · ')}`;
+}
+
+function localBoardRows(tab, rows, cols = 5) {
+  if (!rows.length) return `<tr><td colspan="${cols}" class="empty">Noch keine Läufe. Ab auf die Piste!</td></tr>`;
+  return rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td class="num">${valueStr(tab, r.v)}</td>${cols > 3 ? `<td>${WEATHERS[r.w] ? WEATHERS[r.w].short : ''}</td><td>${new Date(r.date).toLocaleDateString('de-DE')}</td>` : ''}</tr>`).join('');
 }
 
 export function valueStr(mode, v) {
@@ -359,20 +365,39 @@ export class UI {
     if (list.length && !list.find((t) => t.id === trackId)) trackId = list[0].id;
     const key = boardKey(tab, trackId);
     const rows = store.board(key);
+    const online = OnlineBoard.ok;
+    const label = tab === 'freestyle' ? 'Punkte' : tab === 'lawine' ? 'Distanz' : 'Zeit';
+    this._boardKey = key;
     this.show('board', `${this.topbar('Bestenliste')}
       <div class="board">
         <div class="seg">${tabs.map(([id, n]) => `<button class="${id === tab ? 'sel' : ''}" data-tab="${id}">${n}</button>`).join('')}</div>
         ${list.length ? `<div class="seg wrap light">${list.map((t) => `<button class="${t.id === trackId ? 'sel' : ''}" data-btrack="${t.id}">${t.name}</button>`).join('')}</div>` : ''}
         <table class="tbl">
-          <thead><tr><th>#</th><th>Name</th><th>${tab === 'freestyle' ? 'Punkte' : tab === 'lawine' ? 'Distanz' : 'Zeit'}</th><th>Wetter</th><th>Datum</th></tr></thead>
-          <tbody>${rows.length ? rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td class="num">${valueStr(tab, r.v)}</td><td>${WEATHERS[r.w] ? WEATHERS[r.w].short : ''}</td><td>${new Date(r.date).toLocaleDateString('de-DE')}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">Noch keine Läufe. Ab auf die Piste!</td></tr>'}</tbody>
+          <thead><tr><th>#</th><th>Name</th><th>${label}</th>${online ? '' : '<th>Wetter</th><th>Datum</th>'}</tr></thead>
+          <tbody id="bd-body">${online ? '<tr><td colspan="3" class="empty">Bestenliste lädt …</td></tr>' : localBoardRows(tab, rows)}</tbody>
         </table>
-        <p class="muted small">Die Bestenliste wird lokal in diesem Browser gespeichert.</p>
+        <p class="muted small" id="bd-note">${online ? 'Alle Spieler, der beste Lauf pro Person und Karte.' : 'Die Bestenliste wird lokal in diesem Browser gespeichert.'}</p>
       </div>`, (el) => {
       this.bindBack(el);
       el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => this.board(b.dataset.tab, null)));
       el.querySelectorAll('[data-btrack]').forEach((b) => (b.onclick = () => this.board(tab, b.dataset.btrack)));
     });
+    if (online) {
+      OnlineBoard.top(key, 10).then((d) => {
+        const body = this.root.querySelector('#bd-body');
+        if (!body || this._boardKey !== key) return;
+        body.innerHTML = d.top.length
+          ? d.top.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(r.name)}${r.me ? ' (du)' : ''}</td><td class="num">${valueStr(tab, OnlineBoard.fromScore(tab, r.score))}</td></tr>`).join('')
+            + (d.me && !d.top.some((r) => r.me) ? `<tr class="me"><td>${d.me.rank}</td><td>${esc(d.me.name)} (du)</td><td class="num">${valueStr(tab, OnlineBoard.fromScore(tab, d.me.score))}</td></tr>` : '')
+          : '<tr><td colspan="3" class="empty">Noch keine Läufe. Hol dir Platz 1!</td></tr>';
+        if (!OnlineBoard.name(store)) this.root.querySelector('#bd-note').textContent = 'Fahr einen Lauf und trag am Ende deinen Namen ein, dann stehst du hier.';
+      }, () => {
+        const body = this.root.querySelector('#bd-body');
+        if (!body || this._boardKey !== key) return;
+        body.innerHTML = localBoardRows(tab, rows, 3);
+        this.root.querySelector('#bd-note').textContent = 'Die Online-Bestenliste ist gerade nicht erreichbar. Hier siehst du deine Läufe auf diesem Gerät.';
+      });
+    }
   }
 
   // ---------------- Einstellungen ----------------
@@ -468,6 +493,7 @@ export class UI {
         const list = sess && sess.standings ? sess.standings() : [];
         return `<h4>Rangliste</h4><ol class="rank">${list.map((r) => `<li class="${r.isPlayer ? 'me' : ''}"><i style="background:${r.jacket}"></i><span>${esc(r.name)}</span><b>${r.time != null ? fmtTime(r.time) : 'fährt …'}</b></li>`).join('')}</ol>`;
       }
+      if (OnlineBoard.ok && res.boardKey) return '<h4>Bestenliste</h4><div id="gl-side"><p class="muted">Bestenliste lädt …</p></div>';
       const rows = app.store.board(res.boardKey).slice(0, 6);
       return `<h4>Deine Top-Läufe</h4><ol class="rank">${rows.map((r, i) => `<li class="${i + 1 === res.rank && r.date === (rows[i] || {}).date ? '' : ''}${res.rank === i + 1 ? ' me' : ''}"><span>${esc(r.name)}</span><small>${WEATHERS[r.w] ? WEATHERS[r.w].short : ''}</small><b>${valueStr(res.mode, r.v)}</b></li>`).join('')}</ol>`;
     };
@@ -506,6 +532,7 @@ export class UI {
       on('lobby', () => net && net.backToLobby());
       on('leave', () => app.leaveRoom());
     });
+    if (OnlineBoard.ok && res.boardKey && res.mode !== 'bots' && !res.online) this.fillOnlineSide(res);
     if (res.mode === 'bots' || res.online) {
       this.timer = setInterval(() => {
         const side = this.root.querySelector('#res-side');
@@ -514,6 +541,26 @@ export class UI {
         if (rm && net) rm.disabled = net.phase !== 'results';
       }, 500);
     }
+  }
+
+  // Online-Bestenliste neben dem Ergebnis: erst eintragen, dann die Top 6 zeigen
+  fillOnlineSide(res) {
+    const app = this.app, mode = res.mode;
+    const paint = (html) => { const box = this.root.querySelector('#gl-side'); if (box) box.innerHTML = html; return box; };
+    const load = () => OnlineBoard.top(res.boardKey, 6).then((d) => {
+      const rows = d.top.map((r) => `<li class="${r.me ? 'me' : ''}"><span>${esc(r.name)}</span><b>${valueStr(mode, OnlineBoard.fromScore(mode, r.score))}</b></li>`).join('');
+      const mine = d.me && !d.top.some((r) => r.me) ? `<p class="muted small">Du: Platz ${d.me.rank} mit ${valueStr(mode, OnlineBoard.fromScore(mode, d.me.score))}</p>` : '';
+      const box = paint(`${rows ? `<ol class="rank">${rows}</ol>` : '<p class="muted">Noch keine Läufe auf dieser Karte.</p>'}${mine}${OnlineBoard.name(app.store) ? '' : `
+        <div class="field gl-name"><span>Dein Name für die Bestenliste</span><div class="join-row"><input id="gl-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="z. B. Pistensau"><button class="btn" data-gl="save">Eintragen</button></div></div>`}`);
+      const btn = box && box.querySelector('[data-gl=save]');
+      if (btn) btn.onclick = () => {
+        const n = OnlineBoard.setName(app.store, box.querySelector('#gl-name').value);
+        if (!n) { box.querySelector('#gl-name').focus(); return; }
+        paint('<p class="muted">Wird eingetragen …</p>');
+        OnlineBoard.submit(app.store, res.boardKey, mode, res.value).then(load);
+      };
+    }, () => paint('<p class="muted">Die Online-Bestenliste ist gerade nicht erreichbar.</p>'));
+    Promise.resolve(res.onlineSubmit).then(load);
   }
 
   netResultsHtml() {

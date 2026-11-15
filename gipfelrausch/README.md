@@ -38,7 +38,7 @@ Fünf Karten (Edelweiß-Kar, Sonnenalm, Zirbenwald, Wolfsschlucht, Gletscherkant
 
 Dazu kommen freie Hänge (eigene Linie suchen), Felsterrassen (springen oder die Rampe am Rand), Gletscherspalten und Bäche (Brücke oder Sprung), gefrorene Seen und Almwiesen. Bots nehmen unterschiedliche Wege.
 
-Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Schneesturm mit Wind, Nebel), drei Tages-Challenges pro Tag und eine lokale Bestenliste.
+Dazu kommen fünf Wetterlagen (Sonne, Sonnenuntergang, Nacht mit Stirnlampe, Schneesturm mit Wind, Nebel), drei Tages-Challenges pro Tag und eine Online-Bestenliste pro Karte (auf timleonhardt.de, gemeinsam mit den anderen Spielen der Seite; lokal gestartet bleibt sie im Browser).
 
 ## Auf dem Handy
 
