@@ -12,7 +12,7 @@
   })();
 </script>
 <meta name="theme-color" content="#0b1022">
-<meta name="description" content="Browser-Spiele von timleonhardt.de: Peak Rush, eine 3D-Ski-Arcade, Spinward, ein Spiel mit einer Taste, Stone Cold, ein Rutsch-Puzzle mit 30 Leveln, und Plot Twist, ein Aufbau-Strategiespiel mit Tagesbestenliste.">
+<meta name="description" content="Browser-Spiele von timleonhardt.de: Peak Rush, eine 3D-Ski-Arcade, Spinward, ein Spiel mit einer Taste, Stone Cold, ein Rutsch-Puzzle mit 30 Leveln, Plot Twist, ein Aufbau-Strategiespiel mit Tagesbestenliste, und Hearthvale, Farm und Siedlung in einem ganzen Tal.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Spiele · timleonhardt.de">
 <meta property="og:description" content="Peak Rush, Spinward, Stone Cold und Plot Twist, direkt im Browser spielen. Mit gemeinsamen Bestenlisten.">
@@ -21,7 +21,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1022'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%23f2f5fc'/%3E%3Ccircle cx='8' cy='24' r='2.4' fill='%23ff5a36'/%3E%3Ccircle cx='24.5' cy='8' r='2.4' fill='%23ffc94d'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@400;500;700;800&family=Rubik:wght@800&family=Bitter:wght@800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@400;500;700;800&family=Rubik:wght@800&family=Bitter:wght@800&family=Fraunces:ital,opsz,wght@1,9..144,800&display=swap">
 <style>
 /* Layout: a short header, then one tile per game like boxes on a shelf; each tile keeps its game's own palette and type. */
 :root {
@@ -34,11 +34,13 @@
   --orbit: #ffc94d;    /* Spinward accent */
   --ice: #7fd4f5;      /* Stone Cold accent */
   --farm: #a5dc6e;     /* Plot Twist accent */
+  --vale: #f2b84b;     /* Hearthvale accent */
   --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-ski: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
   --font-orbit: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-ice: "Rubik", ui-rounded, ui-sans-serif, system-ui, sans-serif;
   --font-farm: "Bitter", ui-serif, Georgia, serif;
+  --font-vale: "Fraunces", ui-serif, Georgia, serif;
   color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; }
@@ -102,6 +104,10 @@ h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-s
 .orbit { --accent: var(--orbit); }
 .ice { --accent: var(--ice); }
 .farm { --accent: var(--farm); }
+.vale { --accent: var(--vale); }
+.vale .name { font: italic 800 48px/0.95 var(--font-vale); letter-spacing: -0.02em; }
+.badge { align-self: flex-start; font: 800 11px/1 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--night); background: var(--accent); padding: 5px 8px; border-radius: 5px; }
+@media (min-width: 600px) { .games .tile.vale { grid-column: 1 / -1; } .games .tile.vale .art { width: 50%; min-height: 280px; } .vale .name { font-size: 56px; } }
 
 /* Illustration motion */
 .trail { stroke-dasharray: 420; stroke-dashoffset: 0; }
@@ -110,6 +116,7 @@ h1 { margin: 0; font: 800 clamp(40px, 7vw, 64px)/0.95 var(--font-body); letter-s
 @keyframes glide { 0%, 12% { transform: translateX(-50px); } 55%, 100% { transform: translateX(0); } }
 @keyframes carve { from { stroke-dashoffset: 420; } to { stroke-dashoffset: 0; } }
 .orbiter { transform-box: view-box; transform-origin: 160px 104px; animation: spin 7s linear infinite; }
+.blades { transform-box: view-box; transform-origin: 179px 132px; animation: spin 6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 18px; }
@@ -118,7 +125,7 @@ footer p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .tile, .play svg { transition: none; }
   .tile:hover { transform: none; }
-  .orbiter, .tile:hover .trail, .glider { animation: none; }
+  .orbiter, .tile:hover .trail, .glider, .blades { animation: none; }
 }
 @media (max-width: 420px) {
   .wrap { padding-top: calc(32px + env(safe-area-inset-top, 0px)); gap: 28px; }
@@ -134,6 +141,33 @@ footer p { margin: 0; }
   </header>
 
   <main class="games">
+    <a class="tile vale" href="hearthvale/">
+      <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Tal mit Fluss, Feldern, Häusern und einer Windmühle">
+        <rect width="320" height="200" fill="#6cb04a"/>
+        <path d="M0 0h320v38c-40 14-70 6-110 16S120 40 80 52 20 40 0 46z" fill="#80828a"/>
+        <path d="M0 0h320v22c-50 10-90 2-130 10S110 24 70 34 20 22 0 28z" fill="#9a9ca3"/>
+        <path d="M206 54c-4 30 18 50 10 80s-28 40-20 66h26c-6-24 16-40 22-66s-14-52-12-80z" fill="#4aa3d8"/>
+        <path d="M212 120h40v8h-40z" fill="#a0703c"/>
+        <g fill="#2f6b45"><path d="M262 70l10 18h-20z"/><path d="M278 80l10 18h-20z"/><path d="M290 66l10 18h-20z"/><path d="M270 98l10 18h-20z"/><path d="M296 96l10 18h-20z"/><path d="M284 112l10 18h-20z"/></g>
+        <g fill="#5aa83e"><circle cx="30" cy="150" r="9"/><circle cx="48" cy="170" r="8"/><circle cx="20" cy="180" r="8"/><circle cx="160" cy="70" r="8"/></g>
+        <g fill="#8b5e34"><rect x="60" y="120" width="20" height="16"/><rect x="82" y="120" width="20" height="16"/><rect x="104" y="120" width="20" height="16"/></g>
+        <g stroke="#e3b84a" stroke-width="2"><path d="M63 133v-9M68 133v-9M73 133v-9M85 133v-9M90 133v-9M95 133v-9"/></g>
+        <g><rect x="120" y="82" width="26" height="18" fill="#efe2c8"/><path d="M116 84l17-14 17 14z" fill="#c0583f"/><rect x="129" y="90" width="8" height="10" fill="#6b4228"/></g>
+        <g><rect x="152" y="104" width="26" height="18" fill="#efe2c8"/><path d="M148 106l17-14 17 14z" fill="#6b8e3d"/><rect x="161" y="112" width="8" height="10" fill="#6b4228"/></g>
+        <g><rect x="96" y="148" width="26" height="18" fill="#efe2c8"/><path d="M92 150l17-14 17 14z" fill="#3f7fb5"/><rect x="105" y="156" width="8" height="10" fill="#6b4228"/></g>
+        <g><path d="M170 160l4-30h10l4 30z" fill="#d9cfb8"/><g class="blades" stroke="#6b4a2b" stroke-width="2.4"><path d="M179 132l-16-14M179 132l16-14M179 132l-14 16M179 132l14 16"/></g><circle cx="179" cy="132" r="2.6" fill="#6b4a2b"/></g>
+        <g><circle cx="140" cy="134" r="3" fill="#f1c9a0"/><rect x="137" y="137" width="6" height="7" rx="2" fill="#5b7fa6"/><rect x="137" y="128" width="6" height="4" fill="#a0703c"/></g>
+        <g><circle cx="74" cy="104" r="3.4" fill="#f1c9a0"/><rect x="70.5" y="107.5" width="7" height="8" rx="2" fill="#c0392b"/></g>
+      </svg>
+      <div class="body">
+        <span class="badge">Neu · das große Spiel</span>
+        <p class="kind">Farm und Siedlung</p>
+        <h2 class="name">Hearthvale</h2>
+        <p class="desc">Ein ganzes Tal mit Fluss, Wäldern und Bergen. Bestell Felder, fäll Bäume und bau eine Siedlung, in der Siedler selbst arbeiten: Holz wird zu Brettern, Weizen zu Mehl und Brot. Nach einem Jahr zählt der Talwert.</p>
+        <ul class="facts"><li>Echte Karte</li><li>Siedler &amp; Produktionsketten</li><li>Jahreszeiten</li><li>Tal der Woche</li></ul>
+        <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </div>
+    </a>
     <a class="tile ski" href="peak-rush/">
       <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Verschneiter Hang mit orangefarbener Skispur">
         <defs>

@@ -37,7 +37,9 @@ insert into public.lb_boards (prefix, higher_better, min_score, max_score) value
   ('peak-rush:race3',         false, 5000, 1800000),   -- Millisekunden
   ('peak-rush:slalom3',       false, 5000, 1800000),   -- Millisekunden
   ('peak-rush:freestyle3',    true,  1,    10000000),  -- Punkte
-  ('peak-rush:lawine',        true,  1,    1000000)    -- Meter
+  ('peak-rush:lawine',        true,  1,    1000000),   -- Meter
+  ('hearthvale',              true,  1,    100000000), -- Talwert, beste Jahresbilanz aller Zeiten
+  ('hearthvale:week',         true,  1,    100000000)  -- Talwert im Tal der Woche (hearthvale:week:JJJJ-wNN)
 on conflict (prefix) do update
   set higher_better = excluded.higher_better, min_score = excluded.min_score, max_score = excluded.max_score;
 
