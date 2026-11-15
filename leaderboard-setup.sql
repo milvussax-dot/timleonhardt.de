@@ -50,7 +50,7 @@ set search_path = public
 as $$
 declare
   cfg   public.lb_boards;
-  old   public.lb_scores;
+  prev  public.lb_scores;
   clean text := left(btrim(regexp_replace(coalesce(p_name, ''), '[[:cntrl:]]', '', 'g')), 16);
   tb    numeric := coalesce(p_tiebreak, 0);
   better boolean;
@@ -78,10 +78,10 @@ begin
     return;
   end if;
 
-  select * into old from public.lb_scores where board = p_board and player_id = p_player for update;
+  select * into prev from public.lb_scores where board = p_board and player_id = p_player for update;
   better := case when cfg.higher_better
-                 then p_score > old.score or (p_score = old.score and tb < old.tiebreak)
-                 else p_score < old.score or (p_score = old.score and tb < old.tiebreak) end;
+                 then p_score > prev.score or (p_score = prev.score and tb < prev.tiebreak)
+                 else p_score < prev.score or (p_score = prev.score and tb < prev.tiebreak) end;
   if better then
     update public.lb_scores
        set name = clean, score = p_score, tiebreak = tb, achieved_at = now()
