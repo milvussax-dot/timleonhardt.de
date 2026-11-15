@@ -1,8 +1,10 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=9';
-import { Renderer } from './render.js?v=9';
-import { cellRand } from './world.js?v=9';
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=9';
+import { Game } from './sim.js?v=11';
+import { Renderer } from './render.js?v=11';
+import { cellRand } from './world.js?v=11';
+import { Sound } from './audio.js?v=11';
+const audio = new Sound();
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=11';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -142,7 +144,7 @@ function showStart() {
   openModal(() => `
     <h1>Hearthvale</h1>
     <p class="lead">Ein Tal, ein Jahr. Bestell Felder, bau eine Siedlung, in der deine Siedler selbst arbeiten, und erkunde das große Tal. Dort leben fremde Stämme, die dich überfallen. Bilde Soldaten aus, bau Boote und erobere ihre Lager. Nach ${YEAR_DAYS} Tagen zählt der Talwert.</p>
-    <p class="muted"><b>Neu:</b> riesiges Tal mit Nebel, Gebirgen und Insel, sechs Stämme, Schwertkämpfer und Bogenschützen, die du selbst steuerst, Kaserne und Werft zum Ausbauen, Kriegsschiffe, Markt zum Einkaufen, Spielstände mit eigenem Namen und ${QUESTS.length} Ziele.</p>
+    <p class="muted"><b>Neu:</b> riesiges Tal mit Nebel, Gebirgen, Seen und Insel, neun starke Stämme mit Häuptlingen, Musik, Schwertkämpfer und Bogenschützen, die du selbst steuerst, Kaserne und Werft zum Ausbauen, Kriegsschiffe, Markt zum Einkaufen, Spielstände mit eigenem Namen und ${QUESTS.length} Ziele.</p>
     ${list.length ? `<div class="box" style="margin-top:12px"><h3>Deine Spielstände</h3><div class="slots">${list.map((m, i) => `
       <div class="slot">${renaming === m.id ? `
         <div class="namerow slot-name"><input data-name-in="${esc(m.id)}" maxlength="30" placeholder="${esc(slotKind(m))}" value="${esc(m.name || '')}" aria-label="Name des Spielstands"><button class="btn primary" data-name-ok="${esc(m.id)}" type="button">OK</button></div>` : `
@@ -247,7 +249,8 @@ function showHelp(first) {
         <li>Mit einem Boot aus der Werft kommen alle übers Wasser, auch zur Insel im See.</li>
       </ul></div>
       <div class="box"><h3>Stämme und Soldaten</h3><ul>
-        <li>Ab Tag 11 überfallen die Stämme dein Lager und rauben Vorräte. Ein Geschenk bringt 8 Tage Ruhe.</li>
+        <li>Ab Tag 8 überfallen die Stämme dein Lager, rauben Vorräte und zünden Gebäude an. Mit jeder Jahreszeit werden ihre Krieger stärker, und je größer dein Heer, desto mehr rüsten sie auf. Ein Geschenk bringt 8 Tage Ruhe.</li>
+        <li>Jedes Lager hat einen Häuptling und Bogenschützen. Erst wenn der Häuptling gefallen ist, gehört dir das Lager.</li>
         <li>Erzmine, Köhlerei, Schmelze und Waffenschmiede machen Schwerter, der Bogenmacher Bögen. Die Kaserne bildet daraus mit freien Siedlern Schwertkämpfer und Bogenschützen aus.</li>
         <li>Bau die Kaserne aus, dann werden alle ihre Soldaten stärker. Die Ausbildung kostet dann aber mehr.</li>
         <li>Soldaten verteidigen dein Land, Bogenschützen schießen auch von Wachtürmen. Klick auf ein Stammeslager, um es anzugreifen. Erobert gehört dir das Land ringsum.</li>
@@ -302,6 +305,10 @@ function showMenu() {
     <div class="box" style="margin-top:12px"><h3>Name dieses Spielstands</h3>
       <div class="namerow"><input id="saveName" maxlength="30" placeholder="${esc(game.mode === 'week' ? `Tal der Woche (${game.week})` : 'Zufälliges Tal')}" value="${esc(game.name || '')}"><button class="btn" data-act="rename" type="button">Speichern</button></div>
     </div>
+    <div class="box" style="margin-top:12px"><h3>Ton</h3>
+      <label class="check"><input type="checkbox" id="optMusic" ${audio.music ? 'checked' : ''}> Musik</label>
+      <label class="check"><input type="checkbox" id="optSfx" ${audio.sfx ? 'checked' : ''}> Geräusche</label>
+    </div>
     <div class="box" style="margin-top:12px"><h3>Code einlösen</h3>
       <div class="namerow"><input id="giftIn" maxlength="20" autocomplete="off" placeholder="Code"><button class="btn" data-act="redeem" type="button">Einlösen</button></div>
       <p class="muted" id="giftMsg"></p>
@@ -313,6 +320,8 @@ function showMenu() {
     const doRename = () => { game.name = cleanSaveName(nameIn.value); nameIn.value = game.name; saveNow(); renameBtn.textContent = 'Gespeichert'; };
     renameBtn.addEventListener('click', doRename);
     nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doRename(); } });
+    card.querySelector('#optMusic').addEventListener('change', (e) => { audio.unlock(); audio.setMusic(e.target.checked); soundIcon(); });
+    card.querySelector('#optSfx').addEventListener('change', (e) => { audio.unlock(); audio.setSfx(e.target.checked); soundIcon(); });
     const giftIn = card.querySelector('#giftIn'), giftBtn = card.querySelector('[data-act=redeem]'), giftMsg = card.querySelector('#giftMsg');
     const doRedeem = async () => {
       giftBtn.disabled = true;
@@ -329,6 +338,7 @@ function showMenu() {
 function mergeCounts(...objs) { const out = {}; for (const o of objs) for (const k in o) out[k] = (out[k] || 0) + o[k]; return out; }
 function onDayEnd(sum) {
   saveNow();
+  audio.play('day');
   const brought = mergeCounts(sum.gathered, sum.harvested);
   const made = sum.produced;
   const chips = (o) => Object.keys(o).length ? `<div class="chips">${Object.keys(o).map((k) => chip(k, o[k])).join('')}</div>` : '<p class="muted">nichts</p>';
@@ -650,10 +660,10 @@ function renderPanel() {
     on('[data-seed]', (e) => { game.seedKind = e.currentTarget.dataset.seed; renderPanel(); });
     on('[data-boat]', (e) => { const n = Number(e.currentTarget.dataset.boat); b.orders = n ? (b.orders || 0) + n : 0; renderPanel(); });
     on('[data-act=recallAll]', () => { let n = 0; game.tribes.forEach((t, i) => { n += game.recall(i); }); game.toast(n ? `${n} Soldaten kehren zurück.` : 'Niemand ist unterwegs.'); renderPanel(); });
-    on('[data-act=eat]', () => { game.toast(game.eat()); renderHud(); renderPanel(); });
+    on('[data-act=eat]', () => { game.toast(game.eat()); audio.play('eat'); renderHud(); renderPanel(); });
     on('[data-act=demolish]', () => { if (!confirmDemolish) { confirmDemolish = true; renderPanel(); return; } confirmDemolish = false; const err = game.demolish(b); if (err) game.toast(err); closePanel(); });
-    on('[data-sell]', (e) => { const k = e.currentTarget.dataset.sell, n = e.currentTarget.dataset.n === 'all' ? game.stock[k] : Number(e.currentTarget.dataset.n); const got = game.sell(k, n); if (got) game.toast(`${n} ${ITEMS[k].name} für ${got} Münzen verkauft`); renderHud(); renderPanel(); });
-    on('[data-buy]', (e) => { const k = e.currentTarget.dataset.buy, n = Number(e.currentTarget.dataset.n), cost = n * game.buyPrice(k); game.toast(game.buy(k, n) ? `${n} ${ITEMS[k].name} für ${cost} Münzen gekauft` : 'Dafür reichen die Münzen nicht.'); renderHud(); renderPanel(); });
+    on('[data-sell]', (e) => { const k = e.currentTarget.dataset.sell, n = e.currentTarget.dataset.n === 'all' ? game.stock[k] : Number(e.currentTarget.dataset.n); const got = game.sell(k, n); if (got) { game.toast(`${n} ${ITEMS[k].name} für ${got} Münzen verkauft`); audio.play('coin'); } renderHud(); renderPanel(); });
+    on('[data-buy]', (e) => { const k = e.currentTarget.dataset.buy, n = Number(e.currentTarget.dataset.n), cost = n * game.buyPrice(k); const okBuy = game.buy(k, n); game.toast(okBuy ? `${n} ${ITEMS[k].name} für ${cost} Münzen gekauft` : 'Dafür reichen die Münzen nicht.'); if (okBuy) audio.play('coin'); renderHud(); renderPanel(); });
     on('[data-mtab]', (e) => { marketTab = e.currentTarget.dataset.mtab; renderPanel(); });
     p.querySelectorAll('[data-auto]').forEach((cb) => cb.addEventListener('change', () => { const k = cb.dataset.auto, keep = Number(p.querySelector(`[data-keep="${k}"]`).value) || 0; if (cb.checked) game.autoSell[k] = keep; else delete game.autoSell[k]; }));
     p.querySelectorAll('[data-keep]').forEach((inp) => inp.addEventListener('change', () => { const k = inp.dataset.keep; if (game.autoSell[k] != null) game.autoSell[k] = Math.max(0, Number(inp.value) || 0); inp.blur(); }));
@@ -767,9 +777,12 @@ function renderTribe(p) {
   for (let y = t.cy - 7; y <= t.cy + 7 && !coast; y++) for (let x = t.cx - 7; x <= t.cx + 7; x++) if (w.isWater(x, y) && Math.hypot(x - t.cx, y - t.cy) <= 7) { coast = true; break; }
   const ships = coast ? Math.min(2, game.fleet[3] || 0) : 0;
   const mine = pick.reduce((a, s) => a + power(game.maxHp(s), game.atkOf(s), game.cdOf(s), s.type === 'archer'), 0) + ships * 40;
-  const theirs = total * power(t.hp, t.atk, 0.9, false);
+  const tier = game.tribeTier(t);
+  const theirs = total * power(game.warriorHp(t), game.warriorAtk(t), 0.9, false) * 1.05 + (t.chiefDead ? 0 : power(game.chiefHp(t), 5 + 1.2 * tier, 1.0, false));
   let body = `<p>${t.island ? 'Ein Fischerstamm auf der Insel im See.' : 'Ein fremder Stamm mit eigenem Land.'} ${esc(game.raidInfo(t))}</p>`;
   body += `<div class="row"><span>Krieger im Lager</span><b>${total}${fighting ? ` (${fighting} kämpfen)` : ''}</b></div>`;
+  body += `<div class="row"><span>Stärke</span><b>Stufe ${tier} von 4</b></div>`;
+  body += `<div class="row"><span>Häuptling</span><b>${t.chiefDead ? 'gefallen' : 'lebt'}</b></div>`;
   if (raiding) body += `<div class="row"><span>Auf Raubzug</span><b>${raiding}</b></div>`;
   if (away) body += `<div class="row"><span>Angriff läuft</span><b>${away} ${away === 1 ? 'Soldat' : 'Soldaten'}</b></div><div class="actions"><button class="btn small" data-act="recall" type="button">Zurückrufen</button></div>`;
   if (t.island && game.boats <= 0) body += '<p>Auf die Insel kommst du nur mit einem Boot. Bau eine Werft am Ufer und bestell eins.</p>';
@@ -782,7 +795,7 @@ function renderTribe(p) {
     body += `<p><b>${esc(verdict)}</b></p><div class="actions"><button class="btn primary" data-act="attack" type="button" ${pick.length ? '' : 'disabled'}>Angreifen mit ${pick.length}</button></div>`;
   } else body += '<p>Keine freien Soldaten. Bilde in einer Kaserne welche aus. Jeder Wachturm und jede Festung behält eine Wache.</p>';
   if (!t.island) { const c = game.giftCost(t); body += `<div class="actions"><button class="btn small" data-act="gift" type="button" ${game.coins >= c ? '' : 'disabled'}>Geschenk schicken: ${c} Münzen, 8 Tage Frieden</button></div>`; }
-  body += '<p>Erobert ist das Lager, wenn kein Krieger mehr steht. Dann wird es deine Festung und das Land ringsum gehört dir.</p>';
+  body += '<p>Erobert ist das Lager, wenn kein Krieger mehr steht und der Häuptling gefallen ist. Dann wird es deine Festung und das Land ringsum gehört dir.</p>';
   p.innerHTML = `<div class="head"><h2><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</h2><button class="x" data-close aria-label="Schließen">×</button></div>${body}`;
   const on = (sel, fn) => p.querySelectorAll(sel).forEach((el) => el.addEventListener('click', fn));
   on('[data-n]', (e) => { const type = e.currentTarget.dataset.t, v = e.currentTarget.dataset.n, max = type === 'archer' ? archers.length : swords.length; attackW[type] = v === 'all' ? max : Math.max(0, Math.min(max, attackW[type] + Number(v))); renderPanel(); });
@@ -857,6 +870,15 @@ function onKey(e) {
 }
 function zoom(d) { const i = ZOOMS.indexOf(R.cam.zoom); R.cam.zoom = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 2 : i) + d))]; }
 
+function soundIcon() {
+  const b = $('soundBtn'); if (!b) return;
+  b.innerHTML = audio.muted
+    ? '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 8h3l4-3v10l-4-3H3z" fill="currentColor"/><path d="M13 7l5 6M18 7l-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+    : '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 8h3l4-3v10l-4-3H3z" fill="currentColor"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  b.setAttribute('aria-label', audio.muted ? 'Ton an' : 'Ton aus');
+  b.title = audio.muted ? 'Ton an' : 'Ton aus';
+}
+
 /* ---------- Schleife ---------- */
 let last = performance.now();
 function frame(now) {
@@ -882,6 +904,22 @@ function frame(now) {
   hudT -= dt; if (hudT <= 0) { hudT = 0.2; renderHud(); }
   panelT -= dt; if (panelT <= 0) { panelT = 0.6; if (panelMode === 'building' || panelMode === 'tribe' || panelMode === 'troops') renderPanel(); }
   saveT -= dt; if (saveT <= 0) { saveT = 45; saveNow(); }
+  if (active) playSounds(); else if (game.sfx) game.sfx.length = 0;
+}
+function playSounds() {
+  const q = game.sfx;
+  if (q && q.length) {
+    const view = Math.max(R.W, R.H) / R.S / 2;
+    for (const e of q) {
+      if (e.x == null) { audio.play(e.n, 1, 0); continue; }
+      const dx = e.x - R.cam.x, dy = e.y - R.cam.y;
+      audio.play(e.n, 1 - Math.hypot(dx, dy) / (view * 1.3), dx / view);
+    }
+    q.length = 0;
+  }
+  const fighting = game.foes.some((f) => f.mode === 'raid' || f.state === 'fight') || game.soldiers.some((s) => s.state === 'fight');
+  audio.setMood(fighting ? 'battle' : game.season === 3 ? 'winter' : game.hour >= 20 || game.hour < 7 ? 'night' : 'day');
+  audio.update();
 }
 
 /* ---------- Start ---------- */
@@ -912,6 +950,11 @@ function boot() {
   cv.addEventListener('pointerleave', () => { hover = null; if (buildType && !touchGhost) ghost = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
   window.addEventListener('keydown', onKey);
+  // Ton darf erst nach einer Berührung oder Taste starten
+  const unlock = () => audio.unlock();
+  window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock); window.addEventListener('touchend', unlock);
+  $('soundBtn').addEventListener('click', () => { audio.unlock(); const on = audio.muted; audio.setMusic(on); audio.setSfx(on); soundIcon(); });
+  soundIcon();
   window.addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); updateMove(); });
   window.addEventListener('blur', () => { keys.clear(); updateMove(); });
   document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool === tool && (tool === 'build' || tool === 'troops') ? 'hand' : b.dataset.tool)));
@@ -921,7 +964,7 @@ function boot() {
     R.cam.x = (e.clientX - r.left) / r.width * game.world.w; R.cam.y = (e.clientY - r.top) / r.height * game.world.h;
   });
   document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
-  $('hEnergy').addEventListener('click', () => { if (game) { game.toast(game.eat()); renderHud(); } });
+  $('hEnergy').addEventListener('click', () => { if (game) { game.toast(game.eat()); audio.play('eat'); renderHud(); } });
   $('zoomIn').addEventListener('click', () => zoom(1));
   $('zoomOut').addEventListener('click', () => zoom(-1));
   $('helpBtn').addEventListener('click', () => game && showHelp(false));
@@ -937,6 +980,6 @@ function boot() {
   R.snap(game); fitMini();
   showStart();
   requestAnimationFrame(frame);
-  window.__hv = { get game() { return game; }, R };   // für Tests
+  window.__hv = { get game() { return game; }, R, audio };   // für Tests
 }
 boot();

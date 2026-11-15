@@ -1,6 +1,6 @@
 // Spieldaten: Boden, Gegenstände, Pflanzen, Gebäude, Militär, Stämme, Ziele, Zeit
-export const MAP_W = 176;   // neue Täler; ältere Spielstände behalten ihre Größe
-export const MAP_H = 132;
+export const MAP_W = 320;   // neue Täler; ältere Spielstände behalten ihre Größe
+export const MAP_H = 240;
 export const TILE = 32;
 
 // Bodenarten
@@ -80,7 +80,7 @@ export const BUILD_GROUPS = [
 export const BUILD_MENU = BUILD_GROUPS.flatMap((g) => g[1]);
 
 // Land: so weit reicht dein Gebiet um ein Gebäude (andere Gebäude: 3)
-export const TERRITORY = { hut: 12, storage: 10, house: 7, barracks: 8, tower: 13, fort: 14 };
+export const TERRITORY = { hut: 12, storage: 10, house: 7, barracks: 8, tower: 18, fort: 14 };
 
 // Ausbau
 export const HOUSE_LEVELS = [
@@ -112,19 +112,24 @@ export const SHIPYARD_LEVELS = [
   { name: 'Werft, Stufe 3', boat: 'Kriegsschiff', boats: 'Kriegsschiffe', seats: 8, armed: true, cost: { plank: 30, stone: 20, iron: 8 }, build: 55, recipe: { in: { plank: 20, iron: 3 }, out: { boat: 1 }, time: 45 }, value: 162 },
 ];
 export const WARSHIP = { atk: 5, range: 7.5, cd: 2.2, speed: 2.2 };
+// hp und atk gelten für einfache Krieger am Anfang; mit jeder Jahreszeit werden sie stärker (Stufe 1 bis 4)
 export const TRIBES = [
-  { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.2, hp: 9,  start: 6, grow: 0.4 },
-  { key: 'moorhueter',   name: 'Moorhüter',    color: '#8a5bd6', atk: 2.0, hp: 10, start: 5, grow: 0.35 },
-  { key: 'steinbrecher', name: 'Steinbrecher', color: '#d08a2b', atk: 2.6, hp: 11, start: 7, grow: 0.45 },
-  { key: 'dornkrallen',  name: 'Dornkrallen',  color: '#c84f9a', atk: 2.4, hp: 10, start: 6, grow: 0.4 },
-  { key: 'sonnenspeere', name: 'Sonnenspeere', color: '#d4a82a', atk: 2.5, hp: 11, start: 7, grow: 0.45 },
-  { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.1, hp: 9,  start: 5, grow: 0.3 },
+  { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.8, hp: 13, start: 12, grow: 1.2 },
+  { key: 'moorhueter',   name: 'Moorhüter',    color: '#8a5bd6', atk: 2.6, hp: 14, start: 11, grow: 1.1 },
+  { key: 'steinbrecher', name: 'Steinbrecher', color: '#d08a2b', atk: 3.0, hp: 15, start: 13, grow: 1.3 },
+  { key: 'dornkrallen',  name: 'Dornkrallen',  color: '#c84f9a', atk: 2.9, hp: 13, start: 12, grow: 1.2 },
+  { key: 'sonnenspeere', name: 'Sonnenspeere', color: '#d4a82a', atk: 3.0, hp: 14, start: 13, grow: 1.3 },
+  { key: 'aschenwoelfe', name: 'Aschenwölfe',  color: '#7a8290', atk: 3.1, hp: 14, start: 12, grow: 1.4 },
+  { key: 'lehmfaeuste',  name: 'Lehmfäuste',   color: '#9a6234', atk: 2.7, hp: 16, start: 13, grow: 1.2 },
+  { key: 'nachtlaeufer', name: 'Nachtläufer',  color: '#3a4a8a', atk: 3.2, hp: 13, start: 12, grow: 1.4 },
+  { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.6, hp: 13, start: 12, grow: 1.0 },
 ];
+export const FOE = { raidSpeed: 2.8, archerShare: 0.3, archerRange: 4, chiefHp: 70, chiefHpTier: 25, chiefAtk: 5, chiefAtkTier: 1.2 };
 
 // Ziele, der Reihe nach
 export const QUESTS = [
   { id: 'bread',     text: 'Back dein erstes Brot', reward: 30 },
-  { id: 'explore25', text: 'Erkunde ein Fünftel des Tals', reward: 40 },
+  { id: 'explore25', text: 'Erkunde ein Zehntel des Tals', reward: 40 },
   { id: 'tribe',     text: 'Entdecke einen fremden Stamm', reward: 30 },
   { id: 'stonehouse',text: 'Bau ein Wohnhaus zum Steinhaus aus', reward: 50 },
   { id: 'iron',      text: 'Schmilz dein erstes Eisen', reward: 40 },
@@ -138,8 +143,8 @@ export const QUESTS = [
   { id: 'conquer',   text: 'Erobere ein Stammeslager', reward: 150 },
   { id: 'townhouse', text: 'Bau ein Stadthaus', reward: 100 },
   { id: 'warship',   text: 'Bau ein Kriegsschiff', reward: 80 },
-  { id: 'explore60', text: 'Erkunde die Hälfte des Tals', reward: 120 },
-  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 500 },
+  { id: 'explore60', text: 'Erkunde ein Drittel des Tals', reward: 150 },
+  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 1000 },
 ];
 
 // Energie und Dauer der eigenen Aktionen (Sekunden bei 1×)

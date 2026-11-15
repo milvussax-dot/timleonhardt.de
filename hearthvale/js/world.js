@@ -1,5 +1,5 @@
 // Karte: Zufall, Rauschen, Generator, Begehbarkeit und Wegsuche
-import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=9';
+import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=11';
 
 export function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 export function mulberry(a) {
@@ -134,17 +134,18 @@ export function generate(seedStr, attempt = 0) {
     for (let t = 0; t < 500; t++) {
       const x = 18 + Math.floor(rnd() * (W - 36)), y = 16 + Math.floor(rnd() * (H - 32));
       if (Math.abs(x - riverX[y]) < 20 || Math.hypot(x - start.x, y - start.y) < minStart) continue;
-      if (avoid && Math.hypot(x - avoid.x, y - avoid.y) < 34) continue;
+      if (avoid.some((a) => Math.hypot(x - a.x, y - a.y) < 34)) continue;
       const e = elev[y * W + x];
       if (e < MOUNT && (!best || e < best.e)) best = { x, y, e };
     }
     return best;
   };
   let island = null;
-  const big = lakeSpot(40, null);
-  if (big) { carve(big.x, big.y, 8.5 + rnd() * 2.5, 3.4); island = { x: big.x, y: big.y }; }
-  const small = lakeSpot(22, big);
-  if (small) carve(small.x, small.y, 5 + rnd() * 2, 0);
+  const lakes = [];
+  const big = lakeSpot(45, lakes);
+  if (big) { carve(big.x, big.y, 11 + rnd() * 3, 4.6); island = { x: big.x, y: big.y }; lakes.push(big); }
+  const smallLakes = Math.max(1, Math.round(W * H / 25000));   // auf großen Karten mehr Seen
+  for (let i = 0; i < smallLakes; i++) { const l = lakeSpot(22, lakes); if (!l) break; carve(l.x, l.y, 5 + rnd() * 3, 0); lakes.push(l); }
   // Strand an Wasserrändern
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const k = y * W + x;
@@ -155,9 +156,10 @@ export function generate(seedStr, attempt = 0) {
   }
   // Brücken über den Fluss: dort, wo beide Ufer begehbar sind
   const bridgeRows = [];
-  for (let tries = 0; tries < 600 && bridgeRows.length < 5; tries++) {
+  const bridgeMax = Math.max(3, Math.round(H / 26));
+  for (let tries = 0; tries < 900 && bridgeRows.length < bridgeMax; tries++) {
     const y = 6 + Math.floor(rnd() * (H - 12));
-    if (bridgeRows.some((r) => Math.abs(r - y) < 14)) continue;
+    if (bridgeRows.some((r) => Math.abs(r - y) < 16)) continue;
     let x0 = riverX[y], x1 = riverX[y];
     while (w.isWater(x0 - 1, y)) x0--;
     while (w.isWater(x1 + 1, y)) x1++;
@@ -206,8 +208,8 @@ export function generate(seedStr, attempt = 0) {
   };
   sprinkle(7, 7, 13, () => ({ t: 'rock', size: 2 }));
   sprinkle(4, 6, 12, () => ({ t: 'bush', berries: true, regrow: 0 }));
-  // Lagerplätze fremder Stämme: fünf an Land, einer auf der Insel, dazu Trampelpfade ins Tal
-  const sites = pickTribeSites(w, start, rnd, 5);
+  // Lagerplätze fremder Stämme: acht an Land, einer auf der Insel, dazu Trampelpfade ins Tal
+  const sites = pickTribeSites(w, start, rnd, W * H > 40000 ? 8 : 5);
   carveTrails(w, start, sites);
   if (island) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = island.x + dx, y = island.y + dy; if (w.inb(x, y) && !w.isWater(x, y)) w.obj[w.i(x, y)] = null; }
@@ -316,7 +318,7 @@ export function pickTribeSites(w, start, rnd, n, avoid = []) {
     }
     return true;
   };
-  const minStart = Math.max(26, Math.round((w.w + w.h) * 0.2));
+  const minStart = Math.min(70, Math.max(26, Math.round((w.w + w.h) * 0.2)));
   const reach = flood(w, start.x, start.y, terrainPass(w)).mark;
   for (let t = 0; t < 3000 && sites.length < n; t++) {
     const x = 6 + Math.floor(rnd() * (w.w - 12)), y = 6 + Math.floor(rnd() * (w.h - 12));
@@ -340,22 +342,40 @@ export function terrainPass(w) {
 }
 // Trampelpfade von jedem Stammeslager ins Tal: Bäume und Felsen weg, Boden wird Erde
 export function carveTrails(w, start, sites) {
-  const pass = terrainPass(w);
+  const pass = terrainPass(w), W = w.w, H = w.h, N = W * H;
   const clear = (x, y) => {
-    const k = w.i(x, y), g = w.ground[k];
+    const k = y * W + x, g = w.ground[k];
     if (w.obj[k] && w.obj[k].t !== 'chest') w.obj[k] = null;
     if (g === G.GRASS || g === G.MEADOW || g === G.FOREST) w.ground[k] = G.DIRT;
     w.touch(x, y);
   };
+  if (!pass(start.x, start.y)) return;
+  // eine Breitensuche vom Start aus liefert den kürzesten Weg zu jedem Lager
+  const prev = new Int32Array(N).fill(-1), q = new Int32Array(N), s0 = start.y * W + start.x;
+  let qh = 0, qt = 0;
+  q[qt++] = s0; prev[s0] = s0;
+  const DX8 = [1, -1, 0, 0, 1, 1, -1, -1], DY8 = [0, 0, 1, -1, 1, -1, 1, -1];
+  while (qh < qt) {
+    const c = q[qh++], cx = c % W, cy = (c / W) | 0;
+    for (let d = 0; d < 8; d++) {
+      const dx = DX8[d], dy = DY8[d], x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const k = y * W + x;
+      if (prev[k] >= 0 || !pass(x, y)) continue;
+      if (dx && dy && (!pass(cx + dx, cy) || !pass(cx, cy + dy))) continue;
+      prev[k] = c; q[qt++] = k;
+    }
+  }
   for (const p of sites) {
     if (p.island) continue;
-    const path = findPath(w, p.x, p.y, (x, y) => Math.abs(x - start.x) <= 3 && Math.abs(y - start.y) <= 3, start.x, start.y, 60000, pass);
-    if (!path) continue;
+    let k = p.y * W + p.x;
+    if (prev[k] < 0) continue;
     let px = p.x, py = p.y;
-    for (const n of path) {
-      if (n.x !== px && n.y !== py && pass(n.x, py)) clear(n.x, py);   // diagonale Schritte bekommen eine freie Ecke
-      clear(n.x, n.y);
-      px = n.x; py = n.y;
+    while (k !== s0) {
+      const x = k % W, y = (k / W) | 0;
+      if (x !== px && y !== py && pass(x, py)) clear(x, py);   // diagonale Schritte bekommen eine freie Ecke
+      clear(x, y);
+      px = x; py = y; k = prev[k];
     }
   }
 }

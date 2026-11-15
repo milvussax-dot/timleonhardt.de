@@ -130,6 +130,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .qlist .pair { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; }
 .panel ul.tips { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
 .panel ul.tips li { margin: 3px 0; }
+.card label.check { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; font-weight: 700; color: #3d4a38; cursor: pointer; }
+.card label.check input { width: 18px; height: 18px; accent-color: #2f4a26; }
 .panel .selsum { display: none; font-weight: 800; color: var(--ink); }
 .qlist { list-style: none; padding: 0 !important; margin: 8px 0 !important; display: flex; flex-direction: column; gap: 4px; }
 .qlist li { display: grid; grid-template-columns: 1.6em 1fr auto; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 9px; background: #ece6d4; }
@@ -238,6 +240,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <button class="ibtn" id="zoomOut" type="button" aria-label="Herauszoomen">−</button>
     <button class="ibtn" id="zoomIn" type="button" aria-label="Hineinzoomen">+</button>
     <button class="ibtn" id="helpBtn" type="button" aria-label="Hilfe">?</button>
+    <button class="ibtn" id="soundBtn" type="button" aria-label="Ton aus"></button>
     <button class="ibtn" id="menuBtn" type="button" aria-label="Menü">≡</button>
   </div>
 </div>
@@ -264,6 +267,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 <script src="../lb-config.js"></script>
 <script src="../lb.js"></script>
-<script type="module" src="js/main.js?v=9"></script>
+<script type="module" src="js/main.js?v=11"></script>
 </body>
 </html>

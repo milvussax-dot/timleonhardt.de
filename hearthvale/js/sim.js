@@ -4,11 +4,26 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=9';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=9';
-import { Realm } from './realm.js?v=9';
+} from './data.js?v=11';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=11';
+import { Realm } from './realm.js?v=11';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
+const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
+const fromB64 = (str, arr) => { const bin = atob(str); for (let i = 0; i < arr.length; i++) arr[i] = bin.charCodeAt(i); };
+// "R…": Paare aus Wert und Anzahl, "B…": roh. Gewählt wird, was kürzer ist.
+function pack(arr) {
+  const out = [];
+  for (let i = 0; i < arr.length;) { const v = arr[i]; let n = 1; while (i + n < arr.length && arr[i + n] === v && n < 255) n++; out.push(v, n); i += n; }
+  const rle = toB64(Uint8Array.from(out)), raw = toB64(arr);
+  return rle.length < raw.length ? 'R' + rle : 'B' + raw;
+}
+function unpack(str, arr) {
+  if (str[0] === 'B') { fromB64(str.slice(1), arr); return; }
+  const bin = atob(str.slice(1));
+  let k = 0;
+  for (let i = 0; i + 1 < bin.length && k < arr.length; i += 2) { const v = bin.charCodeAt(i), n = bin.charCodeAt(i + 1); for (let j = 0; j < n && k < arr.length; j++) arr[k++] = v; }
+}
 // Bäume (1–20), Felsen (21–22) und Sträucher (23–27) passen in ein Byte
 const clampI = (v, a, b) => Math.max(a, Math.min(b, Math.round(v || 0)));
 function objCode(o) {
@@ -88,6 +103,8 @@ export class Game {
 
   toast(msg) { this.toasts.push({ msg, t: performance.now() }); }
   floatText(x, y, text, color) { this.fx.push({ x, y, text, color: color || '#fff', t: 0 }); }
+  // Geräusch für die Oberfläche (ohne Ort: überall gleich laut)
+  sound(n, x, y) { const q = this.sfx || (this.sfx = []); q.push({ n, x, y }); if (q.length > 48) q.shift(); }
 
   /* ---------- Lager und Wirtschaft ---------- */
   add(item, n, kind) {
@@ -688,12 +705,13 @@ export class Game {
     const w = this.world;
     if (work.type === 'build') {
       const site = this.byId(work.site);
+      if (site) this.sound('hammer', site.x + site.w / 2, site.y + site.h / 2);
       if (site && site.built && site.upgrading) {
         site.upgrading.progress += 1 / Math.max(1, site.upgrading.build);
         if (site.upgrading.progress >= 1) this.finishUpgrade(site);
       } else if (site && !site.built) {
         site.progress += 1 / Math.max(1, BUILDINGS[site.type].build);
-        if (site.progress >= 1) { site.built = true; site.progress = 1; this.landDirty = true; this.toast(`${BUILDINGS[site.type].name} ist fertig.`); for (let dy = 0; dy < site.h; dy++) for (let dx = 0; dx < site.w; dx++) w.touch(site.x + dx, site.y + dy); }
+        if (site.progress >= 1) { site.built = true; site.progress = 1; this.landDirty = true; this.sound('build'); this.toast(`${BUILDINGS[site.type].name} ist fertig.`); for (let dy = 0; dy < site.h; dy++) for (let dx = 0; dx < site.w; dx++) w.touch(site.x + dx, site.y + dy); }
       }
       if (site && (!site.built || site.upgrading)) { s.state = 'building'; } else { s.state = 'idle'; s.task = null; }
       return;
@@ -706,7 +724,7 @@ export class Game {
           for (const k in r.in) b.in[k] -= r.in[k];
           if (r.out.boat) {
             const tier = Math.min(3, b.level || 1);
-            this.addBoat(tier); this.stats.boats++; b.orders = Math.max(0, (Number(b.orders) || 0) - 1);
+            this.addBoat(tier); this.stats.boats++; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('boat');
             this.toast(this.boats === 1 ? 'Dein erstes Boot ist fertig. Jetzt geht es übers Wasser.' : tier === 3 ? 'Ein Kriegsschiff ist fertig.' : tier === 2 ? 'Ein Langboot ist fertig.' : 'Ein Boot ist fertig.');
           } else for (const k in r.out) b.out[k] = (b.out[k] || 0) + r.out[k];
           if (r.out.bread) this.stats.bread += r.out.bread;
@@ -720,6 +738,7 @@ export class Game {
     const { job, x, y } = work, k = w.i(x, y), o = w.obj[k];
     this.releaseTarget(s);
     s.state = 'seek';
+    if (job === 'chop' || job === 'mine' || job === 'ore' || job === 'harvest') this.sound(job === 'ore' ? 'mine' : job, x + 0.5, y + 0.5);
     if (job === 'chop' && o && o.t === 'tree') { w.obj[k] = null; s.carry = { item: 'wood', n: o.kind === 'oak' ? 3 : 2, kind: 'gathered' }; s.state = 'deliver'; }
     else if (job === 'mine') {
       if (o && o.t === 'rock') { if (o.size > 1) o.size--; else w.obj[k] = null; s.carry = { item: 'stone', n: 3, kind: 'gathered' }; }
@@ -811,7 +830,7 @@ export class Game {
     const a = { type: act, x: tx, y: ty };
     const px = Math.floor(p.x), py = Math.floor(p.y);
     if (Math.max(Math.abs(px - tx), Math.abs(py - ty)) === 1) { this.beginAction(a); return null; }
-    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 50000, this.passFor(p));
+    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 150000, this.passFor(p));
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.dest = { goal: nextTo(tx, ty), hx: tx, hy: ty };
     if (!p.path) this.beginAction(a); else p.pending = a;
@@ -833,7 +852,7 @@ export class Game {
   walkTo(tx, ty) {
     const p = this.player, w = this.world, pass = this.passFor(p);
     const goal = (pass ? pass(tx, ty) : w.walkable(tx, ty)) ? (x, y) => x === tx && y === ty : nextTo(tx, ty);
-    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 50000, pass);
+    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 150000, pass);
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.pending = null; p.dest = { goal, hx: tx, hy: ty };
     return null;
@@ -846,6 +865,7 @@ export class Game {
   }
   applyAction(a) {
     const w = this.world, k = w.i(a.x, a.y), o = w.obj[k], A = ACTIONS[a.type];
+    this.sound({ refill: 'splash', open: 'chest' }[a.type] || a.type, a.x + 0.5, a.y + 0.5);
     const done = (msg, item, n) => { this.energy = Math.max(0, this.energy - A.energy); if (item) { this.add(item, n, a.type === 'harvest' ? 'harvested' : 'gathered'); this.floatText(a.x + 0.5, a.y, `+${n} ${ITEMS[item].name}`, ITEMS[item].color); } };
     switch (a.type) {
       case 'chop': if (o && o.t === 'tree') { const n = o.age < 4 ? 1 : (o.kind === 'oak' ? 3 : 2); w.obj[k] = null; done('', 'wood', n); } break;
@@ -947,14 +967,14 @@ export class Game {
   /* ---------- Speichern ---------- */
   save() {
     const w = this.world;
-    const enc = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
+    const enc = pack;
     const objs = [], tr = new Uint8Array(w.w * w.h);
     w.obj.forEach((o, k) => { if (!o) return; const c = objCode(o); if (c) tr[k] = c; else objs.push([k, o]); });
     return JSON.stringify({
       v: 2, w: w.w, h: w.h, seed: this.seed, mode: this.mode, week: this.week, name: this.name || '', gift: !!this.gift, day: this.day, time: this.time, weather: this.weather,
       coins: this.coins, energy: this.energy, water: this.water, stock: this.stock, seedKind: this.seedKind, autoSell: this.autoSell,
       yearScore: this.yearScore, submitted: this.submitted, fed: this.fed, starving: this.starving, totals: this.totals, nextId: this.nextId,
-      ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs, tr: enc(tr),
+      ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs, tr: enc(tr), pack: 1,
       buildings: this.buildings.map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, built: b.built, progress: b.progress, in: b.in, out: b.out, fields: b.fields, paused: !!b.paused, level: b.level || 1, upgrading: b.upgrading || null, orders: b.orders || 0, training: b.training || null, tribe: b.tribe })),
       settlers: this.settlers.map((s) => ({ id: s.id, x: s.x, y: s.y, home: s.home, hat: s.hat })),
       player: { x: this.player.x, y: this.player.y },
@@ -968,7 +988,7 @@ export class Game {
     let W = d.w, H = d.h;
     if (!W || !H) { W = 80; H = Math.round(atob(d.ground).length / W); }   // ältere Täler: 80 × 64
     const w = new World(W, H);
-    const dec = (s, arr) => { const bin = atob(s); for (let i = 0; i < arr.length; i++) arr[i] = bin.charCodeAt(i); };
+    const dec = d.pack ? unpack : fromB64;   // ältere Spielstände: rohes Base64
     dec(d.ground, w.ground); dec(d.wet, w.wet);
     if (d.seen) dec(d.seen, w.seen);
     if (d.tr) { const codes = new Uint8Array(W * H); dec(d.tr, codes); for (let k = 0; k < codes.length; k++) if (codes[k]) w.obj[k] = objFromCode(codes[k]); }

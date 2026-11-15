@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=9';
-import { cellRand } from './world.js?v=9';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=11';
+import { cellRand } from './world.js?v=11';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -443,7 +443,7 @@ export class Renderer {
   /* ---------- Figuren ---------- */
   person(g, e, S, opts) {
     const x = (e.x + (opts.ox || 0) - this.cam.x) * S + this.W / 2, y = (e.y + (opts.oy || 0) - this.cam.y) * S + this.H / 2;
-    const sc = opts.player ? 1.15 : 0.9, bob = opts.boat ? Math.sin((opts.t || 0) * 2 + e.x) * 1.2 : e.moving || e.state === 'walk' || e.path ? Math.abs(Math.sin(e.walkT || 0)) * 2 : 0;
+    const sc = opts.big ? 1.35 : opts.player ? 1.15 : 0.9, bob = opts.boat ? Math.sin((opts.t || 0) * 2 + e.x) * 1.2 : e.moving || e.state === 'walk' || e.path ? Math.abs(Math.sin(e.walkT || 0)) * 2 : 0;
     if (opts.boat) this.boat(g, x, y + S * 0.16, S * 0.95);
     else { g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.ellipse(x, y + S * 0.22, S * 0.2 * sc, S * 0.07 * sc, 0, 0, 7); g.fill(); }
     const by = y - bob - (opts.boat ? S * 0.05 : 0);
@@ -454,6 +454,10 @@ export class Renderer {
     if (opts.shield) { const sx = x - S * 0.15 * sc * (e.facing === 3 ? -1 : 1); g.fillStyle = opts.shield; g.beginPath(); g.ellipse(sx, by - S * 0.02, S * 0.1, S * 0.13, 0, 0, 7); g.fill(); g.strokeStyle = 'rgba(255,240,200,0.9)'; g.lineWidth = 1; g.stroke(); g.fillStyle = 'rgba(255,240,200,0.9)'; g.beginPath(); g.arc(sx, by - S * 0.02, S * 0.025, 0, 7); g.fill(); }
     if (opts.hood) { g.fillStyle = opts.hood; g.beginPath(); g.arc(x, by - S * 0.32 * sc, S * 0.15 * sc, Math.PI * 0.9, Math.PI * 2.1); g.lineTo(x + S * 0.03, by - S * 0.56 * sc); g.closePath(); g.fill(); if (opts.crest) { g.fillStyle = opts.crest; g.beginPath(); g.ellipse(x + S * 0.12 * sc, by - S * 0.47 * sc, S * 0.025, S * 0.09, 0.5, 0, 7); g.fill(); } }
     else if (opts.helmet) { g.fillStyle = '#aab3bf'; g.beginPath(); g.arc(x, by - S * 0.36 * sc, S * 0.14 * sc, Math.PI, 0); g.fill(); g.fillRect(x - S * 0.16 * sc, by - S * 0.37 * sc, S * 0.32 * sc, S * 0.04 * sc); g.fillStyle = opts.crest || C.banner; g.fillRect(x - S * 0.02, by - S * 0.53 * sc, S * 0.04, S * 0.08); }
+    else if (opts.crown) {   // Häuptling: Federkrone
+      for (let i = -3; i <= 3; i++) { g.fillStyle = i % 2 ? '#f3ead8' : opts.crown; g.beginPath(); g.ellipse(x + i * S * 0.045 * sc, by - S * 0.5 * sc - (3 - Math.abs(i)) * S * 0.02, S * 0.03 * sc, S * 0.13 * sc, i * 0.25, 0, 7); g.fill(); }
+      g.fillStyle = '#e8b73a'; g.fillRect(x - S * 0.14 * sc, by - S * 0.4 * sc, S * 0.28 * sc, S * 0.05 * sc);
+    }
     else if (opts.band) { g.fillStyle = opts.band; g.fillRect(x - S * 0.13 * sc, by - S * 0.37 * sc, S * 0.26 * sc, S * 0.05 * sc); g.fillStyle = '#f3ead8'; g.beginPath(); g.ellipse(x + S * 0.1 * sc, by - S * 0.5 * sc, S * 0.035, S * 0.12, 0.35, 0, 7); g.fill(); g.fillStyle = opts.band; g.beginPath(); g.ellipse(x + S * 0.12 * sc, by - S * 0.58 * sc, S * 0.025, S * 0.05, 0.35, 0, 7); g.fill(); }
     else if (opts.hat) { g.fillStyle = opts.hat; g.beginPath(); g.ellipse(x, by - S * 0.39 * sc, S * 0.17 * sc, S * 0.06 * sc, 0, 0, 7); g.fill(); g.beginPath(); g.arc(x, by - S * 0.41 * sc, S * 0.1 * sc, Math.PI, 0); g.fill(); }
     if (opts.rank) { g.strokeStyle = '#ffd25a'; g.lineWidth = 1.5; for (let i = 0; i < opts.rank; i++) { const yy = by - S * 0.08 + i * 3.5; g.beginPath(); g.moveTo(x - 4, yy - 2); g.lineTo(x, yy + 1); g.lineTo(x + 4, yy - 2); g.stroke(); } }
@@ -586,7 +590,7 @@ export class Renderer {
         this.warship(g, ox + sh.x * S, oy + sh.y * S, S, sh.facing, t, sh.swing || 0);
       } else if (d.k === 'f') {
         const f = d.f, tr = game.tribes[f.tribe];
-        this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: 'spear', swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
+        this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: f.type === 'bow' ? 'bow' : 'spear', big: f.type === 'chief', crown: f.type === 'chief' ? tr.color : null, swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
       } else if (d.k === 'hall') this.hall(g, d.tr, ox + d.tr.hall.x * S, oy + d.tr.hall.y * S, S, t, season);
       else if (d.k === 'tent') this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season);
       else if (d.k === 'fire') this.fire(g, ox + d.x * S, oy + d.fy * S, S, t);
@@ -688,8 +692,8 @@ export class Renderer {
     g.setLineDash([]);
   }
   drawFog(g, game, ox, oy, S) {
-    const w = game.world, F = 4;
-    if (!this.fogSm || this.fogSm.width !== w.w + 2 || this.fogSm.height !== w.h + 2) {
+    const w = game.world, F = w.w * w.h > 40000 ? 3 : 4;
+    if (!this.fogSm || this.fogSm.width !== w.w + 2 || this.fogSm.height !== w.h + 2 || this.fogBig.width !== (w.w + 2) * F) {
       this.fogSm = document.createElement('canvas'); this.fogSm.width = w.w + 2; this.fogSm.height = w.h + 2;
       this.fogBig = document.createElement('canvas'); this.fogBig.width = (w.w + 2) * F; this.fogBig.height = (w.h + 2) * F;
       this.fogKey = null;
