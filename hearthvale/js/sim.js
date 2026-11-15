@@ -303,6 +303,58 @@ export class Game {
   }
   releaseTarget(s) { if (s.target != null) { this.reserved.delete(s.target); s.target = null; } }
   markBad(k) { this.bad.set(k, this.clock + 20); }
+  atDoor(s, b) { const d = this.door(b); return Math.abs(s.x - d.x - 0.5) + Math.abs(s.y - d.y - 0.5) <= 1.5; }
+  // Ein Siedler, der von nirgends mehr wegkommt (z. B. zwischen Gebäuden eingeklemmt), wird an eine Tür gesetzt.
+  unstick(s, b) {
+    const target = b || this.nearestStorage(s.x, s.y) || this.buildings[0];
+    const d = this.door(target);
+    if (!this.world.walkable(d.x, d.y)) { s.timer = 3; return; }
+    s.x = d.x + 0.5; s.y = d.y + 0.5; s.path = null;
+    if (s.state === 'walk') s.state = s.carry ? 'deliver' : (s.job != null ? 'seek' : 'idle');
+    s.timer = 0.3;
+  }
+  // true, wenn der Siedler eingesperrt war (und jetzt befreit ist)
+  stuckCheck(s) {
+    const st = this.nearestStorage(s.x, s.y) || this.buildings[0];
+    if (!st) return false;
+    const d = this.door(st);
+    if (findPath(this.world, Math.floor(s.x), Math.floor(s.y), (x, y) => x === d.x && y === d.y, d.x, d.y)) return false;
+    this.unstick(s, s.job != null ? this.byId(s.job) : st);
+    return true;
+  }
+  // Weit weg vom Arbeitsplatz? Erst hingehen. true = damit beschäftigt.
+  commute(s, b, def) {
+    if (Math.abs(s.x - (b.x + 1)) + Math.abs(s.y - (b.y + 1)) <= (def.radius || 2) + 6) return false;
+    const d = this.door(b);
+    s.why = 'Ist auf dem Weg zur Arbeit.';
+    if (!this.goTo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 'seek')) this.unstick(s, b);
+    return true;
+  }
+  // An der Tür warten. Kommt er nicht einmal dorthin, sitzt er fest und wird befreit.
+  waitAtDoor(s, b, why, secs = 3) {
+    s.why = why;
+    if (!this.atDoor(s, b)) {
+      const d = this.door(b);
+      if (!this.goTo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 'seek')) { this.unstick(s, b); return; }
+      if (s.state === 'walk') return;
+    }
+    s.state = 'seek'; s.timer = secs;
+  }
+  // gehackten Boden in Reichweite übernehmen, der noch keinem Hof gehört (z. B. selbst gehackt)
+  adoptSoil(b, def) {
+    const w = this.world, owned = new Set();
+    for (const o of this.buildings) if (o.type === 'farm') for (const k of o.fields) owned.add(k);
+    const cx = b.x + 1, cy = b.y + 1, R = def.radius + 1, found = [];
+    for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+      if (!w.inb(x, y)) continue;
+      const k = w.i(x, y), o = w.obj[k];
+      if (w.ground[k] !== G.SOIL || w.bld[k] >= 0 || owned.has(k)) continue;
+      if (o && (o.t !== 'crop' || (o.farm != null && o.farm !== b.id))) continue;
+      found.push({ k, d: Math.abs(x - cx) + Math.abs(y - cy) });
+    }
+    found.sort((a, c) => a.d - c.d);
+    for (const f of found) { if (b.fields.length >= def.fields) break; b.fields.push(f.k); }
+  }
   isBad(k) { const t = this.bad.get(k); if (t == null) return false; if (t < this.clock) { this.bad.delete(k); return false; } return true; }
 
   think(s) {
@@ -324,6 +376,7 @@ export class Game {
     if (s.job == null) return this.thinkIdle(s);
     const b = this.byId(s.job), def = BUILDINGS[b.type];
     if (b.paused && !s.carry) {
+      s.why = 'Pausiert.';
       const d = this.door(b);
       if (Math.abs(s.x - d.x - 0.5) + Math.abs(s.y - d.y - 0.5) > 1.5) { if (this.goTo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 'seek')) return; }
       s.state = 'seek'; s.timer = 2; return;
@@ -349,6 +402,7 @@ export class Game {
         if (s.state === 'building') this.buildTick(s, site);
         return;
       }
+      if (this.stuckCheck(s)) return;   // er selbst sitzt fest, nicht die Baustelle
       site.blockedUntil = this.clock + 15;
     }
     // 2. freie Arbeitsplätze
@@ -375,13 +429,15 @@ export class Game {
 
   thinkGather(s, b, def) {
     if (s.state === 'working') return;   // wartet auf finishWork
+    if (this.commute(s, b, def)) return;
     const target = this.findTarget(s, b, def);
-    if (!target) {   // nichts zu tun: an der Hütte warten
-      const d = this.door(b);
-      if (Math.abs(s.x - d.x - 0.5) + Math.abs(s.y - d.y - 0.5) > 1.5) this.goTo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 'seek');
-      s.timer = 3;
-      return;
+    if (!target) {
+      const noun = { chop: 'ausgewachsenen Bäume', mine: 'Felsen oder Bergwände', fish: 'Wasserstellen am Ufer', plant: 'freien Plätze für neue Bäume' }[def.job];
+      const extra = def.job === 'chop' ? ' Junge Bäume brauchen 4 Tage.' : def.job === 'plant' && this.season === 3 ? ' Im Winter pflanzt der Förster nicht.' : '';
+      return this.waitAtDoor(s, b, `Nichts zu tun: keine ${noun} in Reichweite.${extra}`);
     }
+    if (target.blocked) return this.waitAtDoor(s, b, 'Sucht nach einem Ziel, das er erreichen kann …', 0.3);
+    s.why = '';
     s.target = target.k; this.reserved.add(target.k);
     s.task = { job: def.job, x: target.x, y: target.y, k: target.k };
     s.state = 'walk'; s.after = 'atTarget';
@@ -399,13 +455,14 @@ export class Game {
       if (this.validTarget(def.job, x, y, b)) cands.push({ x, y, k, d: Math.abs(x - s.x) + Math.abs(y - s.y) });
     }
     cands.sort((a, c) => a.d - c.d);
+    let tried = 0;
     for (let i = 0; i < Math.min(cands.length, 6); i++) {
       const c = cands[i];
       const path = findPath(w, Math.floor(s.x), Math.floor(s.y), nextTo(c.x, c.y), c.x, c.y, 3000);
       if (path) return { ...c, path };
-      this.markBad(c.k);
+      this.markBad(c.k); tried++;
     }
-    return null;
+    return tried ? { blocked: true } : null;
   }
   validTarget(job, x, y, b) {
     const w = this.world, o = w.o(x, y), g = w.g(x, y);
@@ -431,35 +488,38 @@ export class Game {
 
   thinkFarm(s, b, def) {
     if (s.state === 'working') return;
-    const w = this.world, season = this.season;
-    // Felder aufräumen
+    if (this.commute(s, b, def)) return;
+    const w = this.world, season = this.season, canSow = CROPS.wheat.seasons.includes(season);
+    // Felder aufräumen und freien gehackten Boden in Reichweite übernehmen
     b.fields = b.fields.filter((k) => w.ground[k] === G.SOIL && (!w.obj[k] || w.obj[k].t === 'crop') && w.bld[k] < 0);
+    if (b.fields.length < def.fields) this.adoptSoil(b, def);
     const tasks = [];
     for (const k of b.fields) {
-      if (this.reserved.has(k)) continue;
+      if (this.reserved.has(k) || this.isBad(k)) continue;
       const o = w.obj[k], x = k % w.w, y = (k / w.w) | 0;
       if (o && o.t === 'crop' && o.grown >= CROPS[o.kind].days) tasks.push({ x, y, k, task: 'harvest', p: 0 });
-      else if (!o && CROPS.wheat.seasons.includes(season)) tasks.push({ x, y, k, task: 'sow', p: 1 });
+      else if (!o && canSow) tasks.push({ x, y, k, task: 'sow', p: 1 });
       else if (o && o.t === 'crop' && !w.wet[k] && this.weather !== 'rain') tasks.push({ x, y, k, task: 'water', p: 2 });
     }
-    if (!tasks.length && b.fields.length < def.fields && CROPS.wheat.seasons.includes(season)) {
-      const cx = b.x + 1, cy = b.y + 1, R = def.radius + 1;
+    if (!tasks.length && b.fields.length < def.fields && canSow) {
+      const cx = b.x + 1, cy = b.y + 1, R = def.radius + 1, dd = this.door(b);
       for (let y = cy - R; y <= cy + R && tasks.length < 3; y++) for (let x = cx - R; x <= cx + R; x++) {
         if (!w.isFree(x, y) || this.reserved.has(w.i(x, y)) || this.isBad(w.i(x, y))) continue;
         let nearBld = false;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (w.inb(x + dx, y + dy) && w.bld[w.i(x + dx, y + dy)] >= 0 && !(dx === 0 && dy === 0)) {
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && w.inb(x + dx, y + dy) && w.bld[w.i(x + dx, y + dy)] >= 0) {
           const ob = this.byId(w.bld[w.i(x + dx, y + dy)]);
           if (ob && ob !== b) nearBld = true;
         }
-        const dd = this.door(b);
         if (nearBld || (Math.abs(x - dd.x) <= 1 && y === dd.y)) continue;
         tasks.push({ x, y, k: w.i(x, y), task: 'till', p: 3 });
       }
     }
     tasks.sort((a, c) => a.p - c.p || (Math.abs(a.x - s.x) + Math.abs(a.y - s.y)) - (Math.abs(c.x - s.x) + Math.abs(c.y - s.y)));
+    let tried = 0;
     for (const t of tasks.slice(0, 5)) {
       const path = findPath(w, Math.floor(s.x), Math.floor(s.y), nextTo(t.x, t.y), t.x, t.y, 3000);
-      if (!path) { this.markBad(t.k); continue; }
+      if (!path) { this.markBad(t.k); tried++; continue; }
+      s.why = '';
       s.target = t.k; this.reserved.add(t.k);
       s.task = { job: 'farm', farmTask: t.task, x: t.x, y: t.y, k: t.k };
       s.path = path; s.pi = 0; s.after = 'atTarget'; s.dest = { goal: nextTo(t.x, t.y), hx: t.x, hy: t.y };
@@ -467,9 +527,12 @@ export class Game {
       if (!path.length) s.path = null;
       return;
     }
-    const d = this.door(b);
-    if (Math.abs(s.x - d.x - 0.5) + Math.abs(s.y - d.y - 0.5) > 1.5) this.goTo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 'seek');
-    s.timer = 3;
+    let why;
+    if (tried) why = 'Sucht einen Weg zu den Feldern …';
+    else if (season === 3) why = 'Im Winter ruht der Hof. Im Frühling legt er wieder Felder an.';
+    else if (b.fields.length >= def.fields) why = 'Alle Felder sind bestellt und gegossen. Der Weizen wächst über Nacht.';
+    else why = 'Kein freier Platz für neue Felder in Reichweite. Räum rund um den Hof auf oder hack dort selbst Boden, den er übernimmt.';
+    this.waitAtDoor(s, b, why, tried ? 0.3 : 3);
   }
 
   thinkProcess(s, b, def) {
@@ -479,20 +542,21 @@ export class Game {
     // Fertige Ware wegbringen
     const outItem = Object.keys(r.out)[0];
     if ((b.out[outItem] || 0) > 0 && !s.carry) {
-      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) s.timer = 2; return; }
+      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) this.unstick(s, b); return; }
       s.carry = { item: outItem, n: b.out[outItem], kind: 'produced' }; b.out[outItem] = 0;
       s.state = 'deliver';
       return;
     }
     // Zutaten mitgebracht? abliefern
     if (s.carry && s.state === 'bring') {
-      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'bring')) s.timer = 2; return; }
+      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'bring')) this.unstick(s, b); return; }
       b.in[s.carry.item] = (b.in[s.carry.item] || 0) + s.carry.n; s.carry = null; s.state = 'seek';
       return;
     }
     const hasIn = Object.keys(r.in).every((k) => (b.in[k] || 0) >= r.in[k]);
     if (hasIn) {
-      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) s.timer = 2; return; }
+      if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) this.unstick(s, b); return; }
+      s.why = '';
       s.state = 'working'; s.work = { type: 'process', b: b.id }; s.timer = r.time; b.anim = b.anim || 0;
       return;
     }
@@ -511,7 +575,9 @@ export class Game {
       if (st && this.goTo(s, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 'fetched')) return;
     }
     // nichts da: warten
-    if (!atB) this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek');
+    s.why = `Im Lager fehlt ${ITEMS[item].name}. Er holt es, sobald genug da ist.`;
+    if (!atB && !this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) { this.unstick(s, b); return; }
+    if (s.state === 'walk') return;
     s.timer = 3;
   }
 
@@ -522,7 +588,7 @@ export class Game {
     const job = t.job === 'farm' ? t.farmTask : t.job;
     const valid = t.job === 'farm' ? true : this.validTarget(t.job, t.x, t.y, this.byId(s.job));
     if (!valid) { this.releaseTarget(s); s.state = 'seek'; return; }
-    s.state = 'working';
+    s.state = 'working'; s.why = '';
     s.work = { type: 'job', job, x: t.x, y: t.y };
     s.timer = WORK_TIME[job] || 2;
     const dx = t.x + 0.5 - s.x, dy = t.y + 0.5 - s.y;

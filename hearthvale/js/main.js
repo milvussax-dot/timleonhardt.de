@@ -1,5 +1,5 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=3';
+import { Game } from './sim.js?v=4';
 import { Renderer } from './render.js';
 import { ITEMS, BUILDINGS, BUILD_MENU, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS } from './data.js';
 
@@ -389,6 +389,7 @@ function renderPanel() {
       if (def.job) {
         const s = game.settlers.find((x) => x.id === b.worker);
         body += `<div class="row"><span>Arbeiter</span><b>${s ? (s.state === 'working' ? 'arbeitet' : s.carry ? 'trägt Ware' : s.state === 'walk' ? 'unterwegs' : 'wartet') : 'keiner frei'}</b></div>`;
+        if (s && s.why && s.state !== 'working' && !s.carry) body += `<p>${esc(s.why)}</p>`;
         if (!s) body += '<p>Alle Siedler sind beschäftigt. Bau ein Wohnhaus und sorg für Essen, dann kommen neue.</p>';
         const n = game.targetsInRange(b.type, b.x, b.y);
         if (n != null) body += `<div class="row"><span>In Reichweite</span><b>${n} ${{ chop: 'Bäume', mine: 'Felsen', fish: 'Wasserfelder', plant: 'freie Plätze' }[def.job]}</b></div>${n === 0 ? '<p>Hier gibt es nichts zu tun. Reiß das Gebäude ab und bau es an einer besseren Stelle neu.</p>' : ''}`;
