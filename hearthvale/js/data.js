@@ -32,6 +32,7 @@ export const ITEMS = {
   sword:  { name: 'Schwerter', price: 30, color: '#dfe4ec' },
   bow:    { name: 'Bögen',     price: 16, color: '#b07a42' },
   catapult: { name: 'Katapult', price: 150, color: '#8a5a30' },
+  ram:    { name: 'Rammbock',   price: 160, color: '#6b4228' },
   seed_wheat:   { name: 'Weizensaat',  price: 2,  color: '#cdb46a', seed: 'wheat' },
   seed_carrot:  { name: 'Karottensaat', price: 4, color: '#d9a06a', seed: 'carrot' },
   seed_pumpkin: { name: 'Kürbissaat',  price: 12, color: '#d98a4a', seed: 'pumpkin' },
@@ -66,6 +67,8 @@ export const BUILDINGS = {
   market:     { name: 'Markt',        w: 2, h: 2, cost: { plank: 12, stone: 8 }, build: 30, roof: '#b03a5a', desc: 'Kaufen und verkaufen. Überschüsse kann er jeden Abend automatisch verkaufen.' },
   barracks:   { name: 'Kaserne',      w: 2, h: 2, cost: { stone: 20, plank: 12 }, build: 45, roof: '#7a2a2a', desc: 'Bildet aus freien Siedlern Schwertkämpfer (mit Schwert) und Bogenschützen (mit Bogen) aus. Ausgebaut macht sie ihre Soldaten stärker. Soldaten wohnen hier und brauchen kein Bett.' },
   tower:      { name: 'Wachturm',     w: 2, h: 2, cost: { stone: 14, plank: 6 }, build: 35, garrison: 2, roof: '#5a5a6a', desc: 'Vergrößert dein Land, sobald ein Soldat darin Wache hält, und sieht weit ins Tal.' },
+  hideout:    { name: 'Diebesversteck', w: 2, h: 2, cost: { wood: 10, plank: 6, stone: 4 }, build: 25, roof: '#3a3a44', desc: 'Bildet aus freien Siedlern Diebe aus. Sie schleichen sich in fremde Lager und stehlen Waffen, Münzen und Vorräte.' },
+  scout:      { name: 'Späherhütte',  w: 2, h: 2, cost: { wood: 12, plank: 4 }, build: 25, job: 'scout', radius: 50, roof: '#6a7d4a', hat: '#c9a24a', desc: 'Ein Erkunder zieht von hier los, läuft zu unerkundeten Stellen und schaut sich um. So lichtet sich der Nebel weit ums Haus.' },
   siege:      { name: 'Geschützbauer', w: 2, h: 2, cost: { plank: 15, stone: 12, iron: 4 }, build: 40, job: 'process', recipe: { in: { plank: 12, iron: 4, stone: 6 }, out: { catapult: 1 }, time: 30 }, roof: '#7a5a3a', hat: '#5a3a20', desc: 'Baut auf Bestellung Katapulte. Mit ihnen belagerst du Lager und zerstörst ihre Hütten aus der Ferne.' },
   shipyard:   { name: 'Werft',        w: 2, h: 2, cost: { wood: 15, plank: 8 }, build: 35, job: 'process', recipe: { in: { plank: 12 }, out: { boat: 1 }, time: 30 }, nearWater: 3, roof: '#3f6f9a', hat: '#2f5a80', desc: 'Baut auf Bestellung Boote. Mit Booten kommen du, deine Siedler und Soldaten übers Wasser, auch zur Insel. Ausgebaut baut sie Langboote und Kriegsschiffe.' },
   fort:       { name: 'Eroberte Festung', w: 3, h: 3, cost: null, garrison: 3, roof: '#8d5a3b', desc: 'Ein erobertes Stammeslager. Es sichert dir das Land ringsum.' },
@@ -77,7 +80,7 @@ export const BUILD_GROUPS = [
   ['Rohstoffe', ['woodcutter', 'forester', 'quarry', 'mine']],
   ['Nahrung', ['field', 'fisher', 'farm', 'mill', 'bakery']],
   ['Handwerk & Handel', ['sawmill', 'charcoal', 'smelter', 'smithy', 'bowyer', 'market']],
-  ['Militär & Wasser', ['barracks', 'tower', 'siege', 'shipyard']],
+  ['Militär & Erkundung', ['barracks', 'tower', 'siege', 'scout', 'hideout', 'shipyard']],
 ];
 export const BUILD_MENU = BUILD_GROUPS.flatMap((g) => g[1]);
 
@@ -109,8 +112,15 @@ export const TOWER_LEVELS = [
   { name: 'Wehrturm', cost: { stone: 60, plank: 30, iron: 12 }, build: 60, range: 7, atk: 4, cd: 1.6 },
   { name: 'Bollwerk', cost: { stone: 120, plank: 60, iron: 30, sword: 4 }, build: 90, range: 8.5, atk: 6.5, cd: 1.1 },
 ];
+// Dörfer der Stämme: Häuser (stürzen sie ein, fehlen Krieger) und Wachtürme, die auf deine Truppen schießen
+export const CAMP_BUILD = { houses: 3, towers: 2, house: { hp: 4, warriors: 3 }, tower: { hp: 5, range: 7, atk: 1.6, cd: 2 } };
+// Diebe: schleichen ins Lager (Entdeckung je Sekunde in der Nähe: Grundwert + je Krieger + je Turm, gedeckelt), stehlen und rennen heim
+export const THIEF = { coins: 25, hp: 8, speed: 2.4, sneak: 1.7, run: 3.2, zone: 9, spot: 0.02, spotPer: 0.0015, spotTower: 0.03, maxSpot: 0.15, steal: 3, take: { weapons: 4, coins: 80, goods: 8 } };
 // Katapult: rollt langsam, schießt Steine auf die Hütten eines Lagers; jede zerstörte Hütte kostet den Stamm Krieger
 export const CATAPULT = { hp: 40, range: 11, cd: 5, speed: 1.6, hutHp: 3, splash: 7, perHut: 2 };
+// Rammbock: gepanzert (nimmt nur 40 % Schaden), rollt bis an Türme und Häuser und zerschlägt sie aus nächster Nähe
+export const RAM = { hp: 140, speed: 1.3, dmg: 2, cd: 2.4, armor: 0.4 };
+export const RAM_RECIPE = { in: { plank: 16, wood: 10, iron: 6 }, out: { ram: 1 }, time: 30 };
 export const BARRACKS_LEVELS = [
   null,
   { name: 'Kaserne', cap: 8, hp: 0, atk: 0, extra: {} },

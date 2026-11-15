@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=16';
-import { cellRand } from './world.js?v=16';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY, CAMP_BUILD } from './data.js?v=17';
+import { cellRand } from './world.js?v=17';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -429,6 +429,17 @@ export class Renderer {
       g.fillStyle = shade(tr.color, -0.25); g.fillRect(px - S * 0.1, bot - S * 0.85, S * 0.2, S * 0.12);
     }
     this.flag(g, X + Wd / 2, Y + S * 0.08, S * 0.8, tr.color, t);
+    // Waffenständer neben der Halle: je mehr Waffen im Lager, desto mehr Speere
+    const n = Math.min(5, Math.ceil((tr.weapons || 0) / 5));
+    if (n > 0) {
+      const rx = X + Wd + S * 0.05, ry = bot;
+      g.strokeStyle = '#6b4a2b'; g.lineWidth = 2; g.beginPath(); g.moveTo(rx, ry - S * 0.32); g.lineTo(rx + S * 0.6, ry - S * 0.32); g.stroke();
+      for (let i = 0; i < n; i++) {
+        const sx = rx + S * 0.08 + i * S * 0.11;
+        g.strokeStyle = '#8a6440'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(sx, ry); g.lineTo(sx + S * 0.05, ry - S * 0.75); g.stroke();
+        g.fillStyle = '#d8dde4'; g.beginPath(); g.moveTo(sx + S * 0.05, ry - S * 0.82); g.lineTo(sx + S * 0.0, ry - S * 0.68); g.lineTo(sx + S * 0.1, ry - S * 0.68); g.fill();
+      }
+    }
   }
   tent(g, tr, X, Y, S, season) {
     const Wd = 2 * S, Ht = 2 * S, bot = Y + Ht * 0.94;
@@ -477,7 +488,8 @@ export class Renderer {
     if (opts.hp != null && opts.hp < 0.999) { const w = S * 0.42; g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(x - w / 2, by - S * 0.72 * sc, w, 4); g.fillStyle = opts.hp > 0.5 ? '#7ee07e' : opts.hp > 0.25 ? '#f2c14b' : '#f06a5a'; g.fillRect(x - w / 2, by - S * 0.72 * sc, w * Math.max(0, opts.hp), 4); }
     if (opts.hurt) { g.fillStyle = 'rgba(255,80,60,0.35)'; g.beginPath(); g.arc(x, by - S * 0.15, S * 0.28, 0, 7); g.fill(); }
     if (e.facing !== 0) { g.fillStyle = '#3a2a1a'; const fx = e.facing === 1 ? 0.05 : e.facing === 3 ? -0.05 : 0; g.fillRect(x + S * (fx - 0.05) * sc, by - S * 0.31 * sc, 2, 2); g.fillRect(x + S * (fx + 0.04) * sc, by - S * 0.31 * sc, 2, 2); }
-    if (opts.carry) { g.fillStyle = ITEMS[opts.carry].color; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; g.fillRect(x - S * 0.1, by - S * 0.66 * sc, S * 0.2, S * 0.16); g.strokeRect(x - S * 0.1, by - S * 0.66 * sc, S * 0.2, S * 0.16); }
+    if (opts.sack) { g.fillStyle = '#9a7a4a'; g.beginPath(); g.ellipse(x - S * 0.15 * sc, by - S * 0.1 * sc, S * 0.11 * sc, S * 0.13 * sc, -0.3, 0, 7); g.fill(); g.strokeStyle = '#6b4a2b'; g.lineWidth = 1; g.stroke(); }
+    if (opts.carry && ITEMS[opts.carry]) { g.fillStyle = ITEMS[opts.carry].color; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1; g.fillRect(x - S * 0.1, by - S * 0.66 * sc, S * 0.2, S * 0.16); g.strokeRect(x - S * 0.1, by - S * 0.66 * sc, S * 0.2, S * 0.16); }
     if (opts.working) { const a = Math.sin(opts.t * 12) * 0.8; g.strokeStyle = '#5a4a3a'; g.lineWidth = 2.5; g.beginPath(); const hx = x + S * 0.16, hy = by - S * 0.1; g.moveTo(hx, hy); g.lineTo(hx + Math.cos(a - 1) * S * 0.26, hy + Math.sin(a - 1) * S * 0.26); g.stroke(); }
     if (opts.progress != null) { g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 4; g.beginPath(); g.arc(x, by - S * 0.85, S * 0.14, 0, 7); g.stroke(); g.strokeStyle = '#ffd25a'; g.beginPath(); g.arc(x, by - S * 0.85, S * 0.14, -Math.PI / 2, -Math.PI / 2 + opts.progress * Math.PI * 2); g.stroke(); }
     return { x, y: by };
@@ -508,6 +520,47 @@ export class Renderer {
     g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.stroke();
     if (!sw) { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(ex, ey - S * 0.04, S * 0.09, 0, 7); g.fill(); }
     if (c.hp < c.maxHp) { const w = S * 0.6; g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(X - w / 2, Y - S * 0.95, w, 4); g.fillStyle = c.hurtT > 0 ? '#fff' : '#e0b34a'; g.fillRect(X - w / 2, Y - S * 0.95, w * Math.max(0, c.hp / c.maxHp), 4); }
+  }
+  // Rammbock: Holzgehäuse mit Dach auf Rädern, vorn der Rammbalken (stößt beim Treffer nach vorn)
+  ram(g, X, Y, S, c) {
+    const dir = c.facing === 3 ? -1 : 1, push = (c.swing || 0) > 0.25 ? S * 0.2 : 0;
+    g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.ellipse(X, Y + S * 0.1, S * 0.5, S * 0.13, 0, 0, 7); g.fill();
+    g.strokeStyle = '#5a3a20'; g.lineWidth = Math.max(3, S * 0.11);
+    g.beginPath(); g.moveTo(X - S * 0.2 * dir, Y - S * 0.22); g.lineTo(X + (S * 0.6 + push) * dir, Y - S * 0.22); g.stroke();
+    g.fillStyle = '#7a7f88'; g.beginPath(); g.arc(X + (S * 0.63 + push) * dir, Y - S * 0.22, S * 0.09, 0, 7); g.fill();
+    g.fillStyle = '#7a5230'; g.fillRect(X - S * 0.42, Y - S * 0.38, S * 0.84, S * 0.32);
+    g.strokeStyle = '#4a3020'; g.lineWidth = 1;
+    for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(X + i * S * 0.24, Y - S * 0.38); g.lineTo(X + i * S * 0.24, Y - S * 0.06); g.stroke(); }
+    g.fillStyle = '#5e3e28'; g.beginPath(); g.moveTo(X - S * 0.5, Y - S * 0.36); g.lineTo(X, Y - S * 0.68); g.lineTo(X + S * 0.5, Y - S * 0.36); g.closePath(); g.fill();
+    g.fillStyle = '#3a2618'; for (const wx of [-0.3, 0.3]) { g.beginPath(); g.arc(X + wx * S, Y + S * 0.02, S * 0.1, 0, 7); g.fill(); }
+    if (c.hp < c.maxHp) { const w = S * 0.7; g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(X - w / 2, Y - S * 0.86, w, 4); g.fillStyle = c.hurtT > 0 ? '#fff' : '#e0b34a'; g.fillRect(X - w / 2, Y - S * 0.86, w * Math.max(0, c.hp / c.maxHp), 4); }
+  }
+  // Haus eines Stammes: Blockhaus, Dach und Fensterladen in Stammesfarbe
+  tribeHouse(g, tr, X, Y, S, season) {
+    const Wd = 2 * S, Ht = 2 * S, bot = Y + Ht * 0.95;
+    g.fillStyle = 'rgba(0,0,0,0.2)'; g.beginPath(); g.ellipse(X + Wd / 2, bot, Wd * 0.46, S * 0.16, 0, 0, 7); g.fill();
+    g.fillStyle = '#8a6440'; g.fillRect(X + S * 0.18, Y + Ht * 0.45, Wd - S * 0.36, bot - Y - Ht * 0.45);
+    g.strokeStyle = '#6a4a2c'; g.lineWidth = 1.2;
+    for (let yy = Y + Ht * 0.52; yy < bot; yy += S * 0.17) { g.beginPath(); g.moveTo(X + S * 0.18, yy); g.lineTo(X + Wd - S * 0.18, yy); g.stroke(); }
+    const roof = season === 3 ? '#e9eef1' : shade(tr.color, -0.15);
+    g.fillStyle = roof; g.beginPath(); g.moveTo(X + S * 0.02, Y + Ht * 0.5); g.lineTo(X + Wd / 2, Y + S * 0.2); g.lineTo(X + Wd - S * 0.02, Y + Ht * 0.5); g.closePath(); g.fill();
+    g.fillStyle = shade(roof, -0.2); g.beginPath(); g.moveTo(X + Wd / 2, Y + S * 0.2); g.lineTo(X + Wd - S * 0.02, Y + Ht * 0.5); g.lineTo(X + Wd * 0.62, Y + Ht * 0.5); g.closePath(); g.fill();
+    g.fillStyle = '#2a1c12'; g.fillRect(X + Wd / 2 - S * 0.16, bot - S * 0.48, S * 0.32, S * 0.48);
+    g.fillStyle = tr.color; g.fillRect(X + S * 0.36, Y + Ht * 0.6, S * 0.22, S * 0.18); g.fillRect(X + Wd - S * 0.58, Y + Ht * 0.6, S * 0.22, S * 0.18);
+  }
+  // Wachturm eines Stammes: Holzgerüst mit Plattform, Palisade und Fahne; beim Schuss zeigt sich der Schütze
+  tribeTower(g, tr, X, Y, S, b, t) {
+    const Wd = 2 * S, bot = Y + 2 * S * 0.95, top = Y - S * 0.55, tx = X + S * 0.45, tw = Wd - S * 0.9;
+    g.fillStyle = 'rgba(0,0,0,0.2)'; g.beginPath(); g.ellipse(X + Wd / 2, bot, Wd * 0.38, S * 0.14, 0, 0, 7); g.fill();
+    g.strokeStyle = '#5e3e28'; g.lineWidth = Math.max(2, S * 0.08);
+    g.beginPath(); g.moveTo(tx, bot); g.lineTo(tx + S * 0.12, top + S * 0.4); g.moveTo(tx + tw, bot); g.lineTo(tx + tw - S * 0.12, top + S * 0.4);
+    g.moveTo(tx, bot - S * 0.3); g.lineTo(tx + tw - S * 0.1, top + S * 0.9); g.moveTo(tx + tw, bot - S * 0.3); g.lineTo(tx + S * 0.1, top + S * 0.9); g.stroke();
+    g.fillStyle = '#7a5236'; g.fillRect(tx - S * 0.15, top + S * 0.2, tw + S * 0.3, S * 0.32);
+    g.fillStyle = '#8a6440';
+    for (let i = 0; i < 5; i++) { const px = tx - S * 0.15 + (tw + S * 0.2) * i / 4; g.beginPath(); g.moveTo(px, top + S * 0.22); g.lineTo(px + S * 0.05, top - S * 0.02); g.lineTo(px + S * 0.1, top + S * 0.22); g.fill(); }
+    g.fillStyle = tr.color; g.fillRect(tx - S * 0.15, top + S * 0.42, tw + S * 0.3, S * 0.08);
+    this.flag(g, X + Wd / 2, top - S * 0.02, S * 0.7, tr.color, t + b.x);
+    if ((b.swing || 0) > 0) { g.fillStyle = '#f1c9a0'; g.beginPath(); g.arc(X + Wd / 2 + S * 0.22, top + S * 0.1, S * 0.08, 0, 7); g.fill(); }
   }
   // getroffene Hütte: Brandflecken und ein Riss
   tentDamage(g, X, Y, S, hp) {
@@ -595,6 +648,7 @@ export class Renderer {
       if (tr.defeated || !w.seen[w.i(tr.cx, tr.cy)] || tr.hall.x > x1 + 2 || tr.hall.x + 3 < x0 - 6 || tr.hall.y > y1 + 2 || tr.hall.y + 3 < y0 - 6) continue;
       list.push({ y: tr.hall.y + 2.95, k: 'hall', tr });
       for (const h of tr.huts) list.push({ y: h.y + 1.95, k: 'tent', tr, h });
+      for (const s of tr.builds || []) list.push({ y: s.y + 1.95, k: 'tbuild', tr, s });
       const fx = tr.hall.x + 2.6, fy = tr.hall.y + 3.55;
       list.push({ y: fy, k: 'fire', x: fx, fy });
       const n = Math.min(tr.warriors, 6);
@@ -607,6 +661,7 @@ export class Renderer {
     for (const f of game.foes) if (inView(f) && w.seen[w.i(Math.max(0, Math.min(w.w - 1, Math.floor(f.x))), Math.max(0, Math.min(w.h - 1, Math.floor(f.y))))]) list.push({ y: f.y, k: 'f', f });
     for (const sh of game.ships || []) if (inView(sh)) list.push({ y: sh.y, k: 'ship', sh });
     for (const c of game.sieges || []) if (inView(c)) list.push({ y: c.y, k: 'cat', c });
+    for (const h of game.thieves || []) if (h.state !== 'home' && inView(h)) list.push({ y: h.y, k: 'thief', h });
     list.sort((a, c) => a.y - c.y);
     for (const d of list) {
       if (d.k === 'o') {
@@ -633,12 +688,25 @@ export class Renderer {
       } else if (d.k === 'ship') {
         const sh = d.sh;
         this.warship(g, ox + sh.x * S, oy + sh.y * S, S, sh.facing, t, sh.swing || 0);
+      } else if (d.k === 'f' && d.f.mode === 'thief') {   // Dieb eines Stammes: dunkler Umhang, Kapuze in Stammesfarbe
+        const f = d.f, tr = game.tribes[f.tribe];
+        this.person(g, f, S, { shirt: '#34343c', hood: shade(tr.color, -0.25), sack: !!(f.loot || f.coinsStolen), hp: f.hp / f.maxHp, hurt: f.hurtT > 0, t });
+      } else if (d.k === 'thief') {   // dein Dieb: halb durchsichtig, solange ihn keiner gesehen hat
+        const h = d.h;
+        if (!h.spotted) g.globalAlpha = 0.7;
+        this.person(g, h, S, { shirt: '#34343c', hood: '#22222a', sack: !!h.loot, hp: h.hp / h.maxHp, hurt: h.hurtT > 0, t });
+        g.globalAlpha = 1;
+      } else if (d.k === 'tbuild') {
+        const b = d.s, X = ox + b.x * S, Y = oy + b.y * S;
+        if (b.kind === 'tower') this.tribeTower(g, d.tr, X, Y, S, b, t); else this.tribeHouse(g, d.tr, X, Y, S, season);
+        const max = CAMP_BUILD[b.kind].hp;
+        if (b.hp != null && b.hp < max) this.tentDamage(g, X, Y, S, b.hp <= max / 2 ? 1 : 2);
       } else if (d.k === 'f') {
         const f = d.f, tr = game.tribes[f.tribe];
         this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: f.type === 'bow' ? 'bow' : 'spear', big: f.type === 'chief', crown: f.type === 'chief' ? tr.color : null, swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
       } else if (d.k === 'hall') this.hall(g, d.tr, ox + d.tr.hall.x * S, oy + d.tr.hall.y * S, S, t, season);
       else if (d.k === 'tent') { this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season); if (d.h.hp != null && d.h.hp < 3) this.tentDamage(g, ox + d.h.x * S, oy + d.h.y * S, S, d.h.hp); }
-      else if (d.k === 'cat') this.catapult(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c);
+      else if (d.k === 'cat') { if (d.c.kind === 'ram') this.ram(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c); else this.catapult(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c); }
       else if (d.k === 'fire') this.fire(g, ox + d.x * S, oy + d.fy * S, S, t);
       else if (d.k === 'idle') { d.e.walkT = 0; this.person(g, d.e, S * 0.9, { shirt: d.tr.color, band: shade(d.tr.color, -0.3), weapon: 'spear', t }); }
     }
@@ -849,6 +917,8 @@ export class Renderer {
     for (const sh of game.ships || []) m.fillRect(sh.x * sx - 2, sh.y * sy - 2, 4, 4);
     m.fillStyle = '#e0b34a';
     for (const c of game.sieges || []) m.fillRect(c.x * sx - 2, c.y * sy - 2, 4, 4);
+    m.fillStyle = '#c9c9d6';
+    for (const h of game.thieves || []) if (h.state !== 'home') m.fillRect(h.x * sx - 1.5, h.y * sy - 1.5, 3, 3);
     const blink = Math.floor(performance.now() / 300) % 2;
     for (const f of game.foes) { const tr = game.tribes[f.tribe]; m.fillStyle = f.mode === 'raid' && blink ? '#ffffff' : tr.color; m.fillRect(f.x * sx - 1.5, f.y * sy - 1.5, 3, 3); }
     m.fillStyle = '#ff3b30'; m.beginPath(); m.arc(game.player.x * sx, game.player.y * sy, 3, 0, 7); m.fill();

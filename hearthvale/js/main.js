@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=16';
-import { Renderer } from './render.js?v=16';
-import { cellRand } from './world.js?v=16';
-import { Sound } from './audio.js?v=16';
-import { FIRST_RAID } from './realm.js?v=16';
+import { Game } from './sim.js?v=17';
+import { Renderer } from './render.js?v=17';
+import { cellRand } from './world.js?v=17';
+import { Sound } from './audio.js?v=17';
+import { FIRST_RAID } from './realm.js?v=17';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT } from './data.js?v=16';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=17';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -43,6 +43,8 @@ const ICON = {
   soldier: svg('<circle cx="10" cy="6" r="3.5" fill="#f1c9a0"/><path d="M6.3 5.5a3.7 3.7 0 0 1 7.4 0z" fill="#aab3bf"/><path d="M4 18c0-4 2.5-6.5 6-6.5s6 2.5 6 6.5z" fill="#3a5f9a"/>'),
   bow: svg('<path d="M6 2c7 3 7 13 0 16" fill="none" stroke="#a0703c" stroke-width="2.2" stroke-linecap="round"/><path d="M6 2v16" stroke="#e8e0cc" stroke-width="1"/><path d="M3 10h13" stroke="#6b4228" stroke-width="1.4"/><path d="M16 10l-3-2v4z" fill="#c8ccd2"/>'),
   catapult: svg('<path d="M2 15h15" stroke="#6b4228" stroke-width="2.2"/><circle cx="5.5" cy="16" r="2" fill="#4a3020"/><circle cx="13.5" cy="16" r="2" fill="#4a3020"/><path d="M6.5 14 15 4.5" stroke="#a0703c" stroke-width="2" stroke-linecap="round"/><circle cx="15.5" cy="4" r="2.2" fill="#9aa0a8"/>'),
+  ram: svg('<path d="M3 9 10 4l7 5z" fill="#5e3e28"/><rect x="4" y="9" width="12" height="6" fill="#7a5230"/><path d="M2 12h15" stroke="#5a3a20" stroke-width="2.4"/><circle cx="17.5" cy="12" r="1.8" fill="#7a7f88"/><circle cx="6" cy="16" r="1.8" fill="#3a2618"/><circle cx="14" cy="16" r="1.8" fill="#3a2618"/>'),
+  thief: svg('<circle cx="10" cy="6.5" r="3.4" fill="#f1c9a0"/><path d="M5.8 7.5a4.3 4.3 0 0 1 8.4 0L10 1.8z" fill="#22222a"/><path d="M4.5 18c0-5 2.5-8 5.5-8s5.5 3 5.5 8z" fill="#34343c"/><ellipse cx="14.5" cy="13" rx="2.6" ry="3" fill="#9a7a4a"/>'),
   flag: svg('<path d="M5 2v16" stroke="#6b4228" stroke-width="1.6"/><path d="M6 3h10l-2.5 3.5L16 10H6z" fill="#c0392b"/>'),
 };
 const icon = (k) => ICON[k] || (ITEMS[k] && ITEMS[k].seed ? ICON.seed : '');
@@ -255,6 +257,7 @@ function showHelp(first) {
       <div class="box"><h3>Land und Erkundung</h3><ul>
         <li>Bauen kannst du nur in deinem Land, der hellen gestrichelten Grenze. Lager, Wohnhäuser und besetzte Wachtürme vergrößern es.</li>
         <li>Das Tal liegt im Nebel. Geh los, um es zu erkunden, und öffne Schatztruhen.</li>
+        <li>Aus einer <b>Späherhütte</b> zieht ein Erkunder los und lichtet den Nebel weit im Umkreis.</li>
         <li>Klick auf die Minikarte oben rechts, um dort hinzuschauen, oder zieh die Karte mit der Maus. Mausrad, zwei Finger oder + und − zoomen. „Zurück zu dir“ oder Esc bringt die Ansicht zurück.</li>
         <li>Mit einem Boot aus der Werft kommen alle übers Wasser, auch zur Insel im See.</li>
       </ul></div>
@@ -264,6 +267,9 @@ function showHelp(first) {
         <li>Jedes Lager hat einen Häuptling und Bogenschützen. Erst wenn der Häuptling gefallen ist, gehört dir das Lager.</li>
         <li>Erzmine, Köhlerei, Schmelze und Waffenschmiede machen Schwerter, der Bogenmacher Bögen. Die Kaserne bildet daraus mit freien Siedlern Schwertkämpfer und Bogenschützen aus.</li>
         <li>Bau die Kaserne aus, dann werden alle ihre Soldaten stärker. Die Ausbildung kostet dann aber mehr.</li>
+        <li>Die Dörfer der Stämme haben Häuser, Wachtürme, die auf deine Truppen schießen, und ein Waffenlager, das ihre Krieger stärker macht.</li>
+        <li>Im <b>Diebesversteck</b> bildest du Diebe aus. Sie stehlen in fremden Lagern Waffen, Münzen und Vorräte. Aber auch die Stämme schicken Diebe zu dir, und deine Soldaten und Türme können sie fangen.</li>
+        <li>Der <b>Geschützbauer</b> baut auf Bestellung auch gepanzerte Rammböcke, die Türme und Häuser aus nächster Nähe zerschlagen.</li>
         <li>Der <b>Geschützbauer</b> baut auf Bestellung Katapulte. Im Fenster eines Stammes schickst du sie zur Belagerung los: Sie zerstören die Hütten aus der Ferne, jede kostet den Stamm Krieger. Das Lager stürmt heraus, um sie zu zerschlagen, also schick Soldaten mit.</li>
         <li>Wachtürme lassen sich teuer zum Wehrturm und zum Bollwerk ausbauen. Dann schießen sie selbst auf Krieger in der Nähe, auch ohne Wache.</li>
         <li>Angreifen kannst du ein Lager nur aus deinen Militärgebäuden in der Nähe: Kaserne bis ${ATTACK_RANGE.barracks}, Festung bis ${ATTACK_RANGE.fort}, Wachturm bis ${ATTACK_RANGE.tower} Felder entfernt. Schieb deine Grenze mit Wachtürmen an die Stämme heran. Mit dem Werkzeug Truppen steuerst du Soldaten aber überallhin.</li>
@@ -515,7 +521,7 @@ function describe(tx, ty) {
     if (!game.has(def.cost)) return `${def.name}: Dafür fehlen Rohstoffe.`;
     if (!ghost.ok) return ghost.err;
     const n = game.targetsInRange(buildType, ghost.x, ghost.y);
-    const what = { chop: 'Bäume', mine: 'Felsen und Bergwände', ore: 'Bergwände und Felsen', fish: 'Wasserfelder', plant: 'freie Plätze' }[def.job];
+    const what = { chop: 'Bäume', mine: 'Felsen und Bergwände', ore: 'Bergwände und Felsen', fish: 'Wasserfelder', plant: 'freie Plätze', scout: 'unerkundete Felder' }[def.job];
     if (n === 0) return `Achtung: keine ${what} in Reichweite. Der Arbeiter hätte hier nichts zu tun.`;
     return `${def.name} hier bauen${n != null ? ` · ${n} ${what} in Reichweite` : ''}. Esc bricht ab.`;
   }
@@ -599,7 +605,7 @@ function renderPanel() {
         if (s && s.why && s.state !== 'working' && !s.carry) body += `<p>${esc(s.why)}</p>`;
         if (!s) body += '<p>Alle Siedler sind beschäftigt. Bau ein Wohnhaus und sorg für Essen, dann kommen neue.</p>';
         const n = game.targetsInRange(b.type, b.x, b.y, b);
-        if (n != null) body += `<div class="row"><span>In Reichweite</span><b>${n} ${{ chop: 'Bäume', mine: 'Felsen', ore: 'Bergwände und Felsen', fish: 'Wasserfelder', plant: 'freie Plätze' }[def.job]}</b></div>${n === 0 ? '<p>Hier gibt es nichts zu tun. Reiß das Gebäude ab und bau es an einer besseren Stelle neu.</p>' : ''}`;
+        if (n != null) body += `<div class="row"><span>In Reichweite</span><b>${n} ${{ chop: 'Bäume', mine: 'Felsen', ore: 'Bergwände und Felsen', fish: 'Wasserfelder', plant: 'freie Plätze', scout: 'unerkundete Felder' }[def.job]}</b></div>${n === 0 ? (def.job === 'scout' ? '<p>Im Umkreis ist alles erkundet. Bau eine Späherhütte weiter draußen.</p>' : '<p>Hier gibt es nichts zu tun. Reiß das Gebäude ab und bau es an einer besseren Stelle neu.</p>') : ''}`;
       }
       if (def.recipe) {
         const r = game.recipeOf(b), ins = Object.keys(r.in), outs = Object.keys(r.out);
@@ -648,9 +654,18 @@ function renderPanel() {
         body += `<div class="actions"><button class="btn small" data-boat="1" type="button">${L.boat} bestellen</button>${b.orders ? '<button class="btn small" data-boat="0" type="button">Abbestellen</button>' : ''}</div><p>Ein ${L.boat} hat ${L.seats} Plätze${L.armed ? ' und ein Wurfgeschütz. Bei Angriffen auf Lager am Wasser schießen bis zu 2 Kriegsschiffe mit' : ''}. Mit Booten fahren alle übers Wasser.</p>`;
       }
       if (b.type === 'siege') {
-        const out = (game.sieges || []).length;
-        body += `<div class="row"><span>${icon('catapult')} Deine Katapulte</span><b>${game.catapults || 0}${out ? ` (${out} unterwegs)` : ''}</b></div><div class="row"><span>Bestellt</span><b>${b.orders || 0}</b></div>`;
-        body += `<div class="actions"><button class="btn small" data-boat="1" type="button">Katapult bestellen</button>${b.orders ? '<button class="btn small" data-boat="0" type="button">Abbestellen</button>' : ''}</div><p>Ein Katapult rollt in Schussweite eines Lagers und beschießt seine Hütten. Jede eingestürzte Hütte kostet den Stamm ${CATAPULT.perHut} Krieger und Platz für ${CATAPULT.perHut} weitere. Losschicken kannst du es im Fenster eines Stammes.</p>`;
+        const out = (k) => (game.sieges || []).filter((c) => c.kind === k).length;
+        body += `<div class="row"><span>${icon('catapult')} Katapulte</span><b>${game.catapults || 0}${out('catapult') ? ` (${out('catapult')} unterwegs)` : ''} · bestellt ${b.orders || 0}</b></div>`;
+        body += `<div class="row"><span>${icon('ram')} Rammböcke</span><b>${game.rams || 0}${out('ram') ? ` (${out('ram')} unterwegs)` : ''} · bestellt ${b.ramOrders || 0}</b></div>`;
+        body += `<div class="row"><span>Ein Rammbock braucht</span><span class="cost">${costChips(RAM_RECIPE.in, game)}</span></div>`;
+        body += `<div class="actions"><button class="btn small" data-boat="1" type="button">Katapult bestellen</button><button class="btn small" data-ram="1" type="button">Rammbock bestellen</button>${b.orders || b.ramOrders ? '<button class="btn small" data-act="unorder" type="button">Alles abbestellen</button>' : ''}</div>`;
+        body += `<p>Katapulte beschießen ein Lager aus der Ferne, erst die Wachtürme, dann Häuser und Hütten. Rammböcke sind gepanzert, rollen bis an die Gebäude und zerschlagen sie. Jedes eingestürzte Haus oder jede Hütte kostet den Stamm Krieger. Losschicken kannst du beides im Fenster eines Stammes.</p>`;
+      }
+      if (b.type === 'hideout') {
+        const mine = game.thieves || [], ready = mine.filter((h) => h.state === 'home').length;
+        body += `<div class="row"><span>${icon('thief')} Deine Diebe</span><b>${mine.length}${mine.length - ready ? ` (${mine.length - ready} unterwegs)` : ''}</b></div>`;
+        body += `<div class="actions"><button class="btn small" data-act="trainThief" type="button" ${game.coins >= THIEF.coins ? '' : 'disabled'}>Dieb ausbilden: ${THIEF.coins} Münzen und 1 freier Siedler</button></div>`;
+        body += '<p>Diebe schleichen sich in ein Lager, stehlen erst Waffen, dann Münzen oder Vorräte und rennen heim. Je mehr Krieger und Türme ein Lager hat, desto eher werden sie entdeckt. Losschicken kannst du sie im Fenster eines Stammes.</p>';
       }
       const up = game.upgradeInfo(b);
       if (b.upgrading) body += `<div class="row"><span>Ausbau</span><b>${Math.round(b.upgrading.progress * 100)} %</b></div><div class="prog"><i style="width:${Math.round(b.upgrading.progress * 100)}%"></i></div><p>Freie Siedler bauen aus. Das Gebäude bleibt in Betrieb.</p>`;
@@ -696,6 +711,9 @@ function renderPanel() {
     on('[data-act=steer]', () => { const ids = game.soldiers.filter((s) => s.home === b.id && s.state !== 'garrison').map((s) => s.id); setTool('troops'); sel.clear(); ids.forEach((id) => sel.add(id)); renderPanel(); });
     on('[data-seed]', (e) => { game.seedKind = e.currentTarget.dataset.seed; renderPanel(); });
     on('[data-boat]', (e) => { const n = Number(e.currentTarget.dataset.boat); b.orders = n ? (b.orders || 0) + n : 0; renderPanel(); });
+    on('[data-ram]', (e) => { b.ramOrders = (b.ramOrders || 0) + Number(e.currentTarget.dataset.ram); renderPanel(); });
+    on('[data-act=unorder]', () => { b.orders = 0; b.ramOrders = 0; renderPanel(); });
+    on('[data-act=trainThief]', () => { const err = game.trainThief(b); game.toast(err || 'Ein Siedler ist jetzt ein Dieb.'); renderHud(); renderPanel(); });
     on('[data-act=recallAll]', () => { let n = 0; game.tribes.forEach((t, i) => { n += game.recall(i); }); game.toast(n ? `${n} Soldaten kehren zurück.` : 'Niemand ist unterwegs.'); renderPanel(); });
     on('[data-act=eat]', () => { game.toast(game.eat()); audio.play('eat'); renderHud(); renderPanel(); });
     on('[data-act=demolish]', () => { if (!confirmDemolish) { confirmDemolish = true; renderPanel(); return; } confirmDemolish = false; const err = game.demolish(b); if (err) game.toast(err); closePanel(); });
@@ -820,6 +838,10 @@ function renderTribe(p) {
   body += `<div class="row"><span>Krieger im Lager</span><b>${total}${fighting ? ` (${fighting} kämpfen)` : ''}</b></div>`;
   body += `<div class="row"><span>Stärke</span><b>Stufe ${tier} von 4</b></div>`;
   body += `<div class="row"><span>Häuptling</span><b>${t.chiefDead ? 'gefallen' : 'lebt'}</b></div>`;
+  const tb = t.builds || [], nT = tb.filter((b) => b.kind === 'tower').length, nH = tb.filter((b) => b.kind === 'house').length;
+  body += `<div class="row"><span>Bauten</span><b>${nT} ${nT === 1 ? 'Wachturm' : 'Wachtürme'} · ${nH} ${nH === 1 ? 'Haus' : 'Häuser'} · ${t.huts.length} ${t.huts.length === 1 ? 'Hütte' : 'Hütten'}</b></div>`;
+  body += `<div class="row"><span>Waffen im Lager</span><b>${t.weapons || 0}${t.weapons ? ` (Krieger +${Math.round(Math.min(25, t.weapons) * 0.8)} % stärker)` : ''}</b></div>`;
+  if (nT) body += `<p>Die Wachtürme schießen auf alles, was dir gehört und näher als ${CAMP_BUILD.tower.range} Felder kommt. Katapulte und Rammböcke holen sie herunter.</p>`;
   if (raiding) body += `<div class="row"><span>Auf Raubzug</span><b>${raiding}</b></div>`;
   if (away) body += `<div class="row"><span>Angriff läuft</span><b>${away} ${away === 1 ? 'Soldat' : 'Soldaten'}</b></div><div class="actions"><button class="btn small" data-act="recall" type="button">Zurückrufen</button></div>`;
   if (sources.length) {
@@ -836,10 +858,18 @@ function renderTribe(p) {
     const verdict = !total ? 'Das Lager ist ohne Verteidiger. Ein Soldat reicht.' : !pick.length ? 'Wähl Soldaten für den Angriff aus.' : mine >= theirs * 1.8 ? 'Das reicht sicher.' : mine >= theirs * 1.1 ? 'Das könnte knapp werden.' : 'Das reicht wohl nicht. Nimm mehr Soldaten mit oder bau die Kaserne aus.';
     body += `<p><b>${esc(verdict)}</b></p><div class="actions"><button class="btn primary" data-act="attack" type="button" ${pick.length ? '' : 'disabled'}>Angreifen mit ${pick.length}</button></div>`;
   } else body += '<p>In den Gebäuden in Reichweite sind keine freien Soldaten. Bilde in einer Kaserne welche aus. Jeder Wachturm und jede Festung behält eine Wache.</p>';
-  if (!t.island && (game.catapults || 0) > 0) {   // Belagerung
-    const ready = game.catapults - (game.sieges || []).length, here = (game.sieges || []).filter((c) => c.campaign === selTribe).length;
-    body += `<div class="row"><span>${icon('catapult')} Katapulte bereit</span><b>${ready}${here ? ` · ${here} belagern` : ''}</b></div><div class="row"><span>Hütten im Lager</span><b>${t.huts.length}</b></div>`;
-    if (ready > 0 && sources.length && t.huts.length) body += `<div class="actions"><button class="btn small" data-act="siege" type="button">Belagern mit ${Math.min(ready, 3)} ${Math.min(ready, 3) === 1 ? 'Katapult' : 'Katapulten'}</button></div><p>Die Krieger stürmen heraus, um die Katapulte zu zerschlagen. Schick Soldaten zum Schutz mit.</p>`;
+  if (!t.island && ((game.catapults || 0) > 0 || (game.rams || 0) > 0)) {   // Belagerung
+    const sg = game.sieges || [], readyC = (game.catapults || 0) - sg.filter((c) => c.kind === 'catapult').length, readyR = (game.rams || 0) - sg.filter((c) => c.kind === 'ram').length;
+    const here = sg.filter((c) => c.campaign === selTribe).length, kc = Math.min(readyC, 3), kr = Math.min(readyR, 2);
+    body += `<div class="row"><span>${icon('catapult')} Katapulte · ${icon('ram')} Rammböcke bereit</span><b>${readyC} · ${readyR}${here ? ` (${here} belagern)` : ''}</b></div>`;
+    const what = [kc ? `${kc} ${kc === 1 ? 'Katapult' : 'Katapulten'}` : '', kr ? `${kr} ${kr === 1 ? 'Rammbock' : 'Rammböcken'}` : ''].filter(Boolean).join(' und ');
+    if ((kc || kr) && sources.length && (tb.length || t.huts.length)) body += `<div class="actions"><button class="btn small" data-act="siege" type="button">Belagern mit ${what}</button></div><p>Die Krieger stürmen heraus, um die Geräte zu zerschlagen, und die Türme schießen. Schick Soldaten zum Schutz mit.</p>`;
+  }
+  const th = game.thieves || [], readyT = th.filter((h) => h.state === 'home').length, outT = th.filter((h) => h.target === selTribe && h.state !== 'home').length;
+  if (th.length) {   // Diebe
+    const p = Math.min(THIEF.maxSpot, THIEF.spot + THIEF.spotPer * t.warriors + THIEF.spotTower * nT);
+    body += `<div class="row"><span>${icon('thief')} Diebe bereit</span><b>${readyT}${outT ? ` · ${outT} hier unterwegs` : ''}</b></div>`;
+    if (readyT) body += `<div class="actions"><button class="btn small" data-act="sendThief" type="button">Dieb losschicken</button></div><p>Gefahr, entdeckt zu werden: ${p < 0.06 ? 'gering' : p < 0.1 ? 'mittel' : 'hoch'}. Er stiehlt erst Waffen, dann Münzen oder Vorräte.</p>`;
   }
   if (!t.island) { const c = game.giftCost(t); body += `<div class="actions"><button class="btn small" data-act="gift" type="button" ${game.coins >= c ? '' : 'disabled'}>Geschenk schicken: ${c} Münzen, 8 Tage Frieden</button></div>`; }
   body += '<p>Erobert ist das Lager, wenn kein Krieger mehr steht und der Häuptling gefallen ist. Dann wird es deine Festung und das Land ringsum gehört dir.</p>';
@@ -848,6 +878,7 @@ function renderTribe(p) {
   on('[data-n]', (e) => { const type = e.currentTarget.dataset.t, v = e.currentTarget.dataset.n, max = type === 'archer' ? archers.length : swords.length; attackW[type] = v === 'all' ? max : Math.max(0, Math.min(max, attackW[type] + Number(v))); renderPanel(); });
   on('[data-act=attack]', () => { const err = game.attackTribe(selTribe, { sword: attackW.sword, archer: attackW.archer }); if (err) game.toast(err); renderPanel(); });
   on('[data-act=siege]', () => { const err = game.siegeTribe(selTribe, 3); if (err) game.toast(err); renderPanel(); });
+  on('[data-act=sendThief]', () => { const err = game.sendThief(selTribe); if (err) game.toast(err); renderPanel(); });
   on('[data-act=recall]', () => { const n = game.recall(selTribe); game.toast(`${n} ${n === 1 ? 'Soldat kehrt' : 'Soldaten kehren'} zurück.`); renderPanel(); });
   on('[data-act=gift]', () => { const err = game.sendGift(selTribe); if (err) game.toast(err); renderHud(); renderPanel(); });
   p.querySelector('[data-close]').addEventListener('click', closePanel);

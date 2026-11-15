@@ -1,17 +1,19 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=16';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=16';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM, RAM_RECIPE, THIEF, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=17';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=17';
 
-export const CAMP_R = 8;        // so weit reicht das Land eines Stammes
+export const CAMP_R = 12;       // so weit reicht das Land eines Stammes
 export const FIRST_RAID = 10;   // vorher greift niemand an
 const RAID_CALM = 5;            // nach einem Überfall so viele Tage (plus 0–2) keiner mehr, egal von welchem Stamm
 const RAID_EVERY = 10;          // derselbe Stamm frühestens nach so vielen Tagen wieder (plus Weg / 30, plus 0–3)
 const RAID_MAX = 16;            // mehr Krieger schickt ein Stamm nie auf einmal
 const CAMP_EXTRA = 12;          // so viele Krieger mehr als zu Beginn passen ins Lager (wächst mit Tag und Heer)
-const BALANCE = 2;              // Stand der Spielbalance; ältere Spielstände werden beim Laden einmal angepasst
+const BALANCE = 3;              // Stand der Spielbalance; ältere Spielstände werden beim Laden einmal angepasst
 const HUT_SPOTS = [[-5, -3], [4, -3], [-5, 2], [4, 2], [-1, -5], [-8, -1], [7, -1], [-4, 5], [3, 5], [-4, -7], [3, -7]];
 const ISLAND_HUT_SPOTS = [[-4, -1], [3, -1], [-1, -4], [-4, 1], [3, 1]];
+const HOUSE_SPOTS = [[-10, -5], [9, -5], [-1, -9], [-10, 3], [9, 3]], TOWER_SPOTS = [[-7, 6], [6, 6], [-8, -8], [7, -8]];
+const ISLAND_BUILD_SPOTS = [[-4, 1], [3, 1], [-6, -3], [5, -3], [-1, -6]];
 const ALARM_R = 10;             // kommen Soldaten so nah, verteidigt sich das Lager
 const CONTACT_R = 5;            // treffen Truppen so nah aufeinander, kämpfen sie (Bogenschützen: Schussweite)
 const REACH = 0.95, HIT_CD = 0.9;
@@ -44,7 +46,7 @@ export const QUEST_TEST = {
 export const Realm = {
   /* ---------- Einrichtung ---------- */
   setupRealm(sites) {
-    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 }; this.catapults = 0;
+    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 }; this.catapults = 0; this.rams = 0; this.thieves = [];
     if (this.seenCount == null) this.seenCount = 0;
     const rnd = mulberry(hash(this.seed + ':stämme'));
     const pool = TRIBES.filter((t) => t.key !== 'nebelfischer');
@@ -90,13 +92,15 @@ export const Realm = {
       raidIn: 1 + ti * 2 + Math.floor(rnd() * 3), raidAt: null, peaceUntil: 0, gifts: 0, raid: null,
     };
     this.campHuts(t, ti, false);
+    this.campBuilds(t, ti, false);
+    t.weapons = 5; t.goods = { coins: 60, bread: 10, wood: 15 };
     w.touchAll();
     return t;
   },
-  // Hütten rund um die Halle (Land bis 7, Insel bis 3). `later`: nachträglich in einem laufenden Spiel,
-  // dann weder Wege, Truhen, eigenes Land noch Figuren überbauen.
-  campHuts(t, ti, later) {
-    const w = this.world, want = t.island ? 3 : 7;
+  // belegt 2 × 2 Felder an einer Stelle ums Lager, wenn sie frei sind. `later`: im laufenden Spiel
+  // (weder Wege, Truhen, eigenes Land noch Figuren überbauen)
+  campPlacer(t, ti, later) {
+    const w = this.world;
     const units = later ? [this.player, ...(this.settlers || []), ...(this.soldiers || []), ...(this.foes || [])].filter(Boolean) : [];
     const near = (x, y) => this.buildings.some((b) => x >= b.x - 3 && x < b.x + b.w + 3 && y >= b.y - 3 && y < b.y + b.h + 3);
     const ok = (x, y) => {
@@ -105,43 +109,74 @@ export const Realm = {
       if (gr === G.MOUNTAIN || gr === G.BRIDGE || w.bld[k] >= 0 || w.tstruct[k] >= 0) return false;
       return !later || (gr !== G.DIRT && gr !== G.PATH && w.land[k] !== 1 && !(w.obj[k] && w.obj[k].t === 'chest') && !near(x, y));
     };
-    for (const [ox, oy] of t.island ? ISLAND_HUT_SPOTS : HUT_SPOTS) {
-      if (t.huts.length >= want) break;
+    return (ox, oy) => {
       const x = t.cx + ox, y = t.cy + oy;
-      if (!(ok(x, y) && ok(x + 1, y) && ok(x, y + 1) && ok(x + 1, y + 1))) continue;
-      if (units.some((u) => u.x > x - 0.6 && u.x < x + 2.6 && u.y > y - 0.6 && u.y < y + 2.6)) continue;
+      if (!(ok(x, y) && ok(x + 1, y) && ok(x, y + 1) && ok(x + 1, y + 1))) return null;
+      if (units.some((u) => u.x > x - 0.6 && u.x < x + 2.6 && u.y > y - 0.6 && u.y < y + 2.6)) return null;
       for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
         const k = w.i(x + dx, y + dy);
         w.tstruct[k] = ti; w.obj[k] = null;
         if (w.ground[k] === G.FOREST) w.ground[k] = G.GRASS;
         if (later) w.touch(x + dx, y + dy);
       }
-      t.huts.push({ x, y, w: 2, h: 2 });
+      return { x, y, w: 2, h: 2 };
+    };
+  },
+  // Häuser und Wachtürme rund ums Lager (Land: 3 Häuser und 2 Türme, Insel: je eins)
+  campBuilds(t, ti, later) {
+    if (!t.builds) t.builds = [];
+    const take = this.campPlacer(t, ti, later);
+    const place = (kind, spots, want) => {
+      for (const [ox, oy] of spots) {
+        if (t.builds.filter((b) => b.kind === kind).length >= want) return;
+        const r = take(ox, oy);
+        if (r) t.builds.push({ kind, ...r, hp: CAMP_BUILD[kind].hp });
+      }
+    };
+    place('house', t.island ? ISLAND_BUILD_SPOTS : HOUSE_SPOTS, t.island ? 1 : CAMP_BUILD.houses);
+    place('tower', t.island ? ISLAND_BUILD_SPOTS : TOWER_SPOTS, t.island ? 1 : CAMP_BUILD.towers);
+  },
+  // Hütten rund um die Halle (Land bis 7, Insel bis 3). `later`: nachträglich in einem laufenden Spiel,
+  // dann weder Wege, Truhen, eigenes Land noch Figuren überbauen.
+  campHuts(t, ti, later) {
+    const want = t.island ? 3 : 7, take = this.campPlacer(t, ti, later);
+    for (const [ox, oy] of t.island ? ISLAND_HUT_SPOTS : HUT_SPOTS) {
+      if (t.huts.length >= want) break;
+      const r = take(ox, oy);
+      if (r) t.huts.push(r);
     }
   },
   // Spielstände von vor dem Umbau: größere Lager, ein paar Hütten mehr und erst einmal Ruhe
-  rebalance() {
+  rebalance(from) {
     const rnd = mulberry(hash(this.seed + ':umbau:' + this.day));
     this.tribes.forEach((t, ti) => {
       if (t.defeated) return;
-      t.cap0 = (t.cap0 || t.cap) + 8; t.cap += 8;
-      t.warriors += 6;
-      this.campHuts(t, ti, true);
-      if (!t.island) { t.raidAt = null; t.raidIn = Math.max(t.raidIn, 2 + Math.floor(rnd() * 4)); }
+      if (from < 2) {
+        t.cap0 = (t.cap0 || t.cap) + 8; t.cap += 8;
+        t.warriors += 6;
+        this.campHuts(t, ti, true);
+        if (!t.island) { t.raidAt = null; t.raidIn = Math.max(t.raidIn, 2 + Math.floor(rnd() * 4)); }
+      }
+      if (from < 3) {   // Häuser, Wachtürme, Waffen und Vorräte
+        this.campBuilds(t, ti, true);
+        if (t.weapons == null) t.weapons = 5 + this.day;
+        if (!t.goods) t.goods = { coins: 60 + this.day * 6, bread: 10, wood: 15 };
+      }
     });
-    this.raidCalm = Math.max(this.raidCalm || 0, this.day + 3);
+    if (from < 2) this.raidCalm = Math.max(this.raidCalm || 0, this.day + 3);
   },
   markCamps() {   // nach dem Laden: Hütten der Stämme blockieren wieder
     const w = this.world;
     w.tstruct.fill(-1);
     this.tribes.forEach((t, ti) => {
       if (t.defeated) return;
-      for (const r of [t.hall, ...t.huts]) for (let dy = 0; dy < r.h; dy++) for (let dx = 0; dx < r.w; dx++) if (w.inb(r.x + dx, r.y + dy)) w.tstruct[w.i(r.x + dx, r.y + dy)] = ti;
+      for (const r of [t.hall, ...t.huts, ...(t.builds || [])]) for (let dy = 0; dy < r.h; dy++) for (let dx = 0; dx < r.w; dx++) if (w.inb(r.x + dx, r.y + dy)) w.tstruct[w.i(r.x + dx, r.y + dy)] = ti;
     });
   },
   // flüchtiger Zustand nach Start und Laden
   initRealm() {
     this.foes = []; this.ships = []; this.shots = []; this.sieges = [];
+    if (!this.thieves) this.thieves = [];
     this.realmT = 0; this.garT = 1; this.questT = 1;
     this.fogVer = (this.fogVer || 0) + 1;
     for (const t of this.tribes) t.raid = null;
@@ -154,8 +189,11 @@ export const Realm = {
     for (const s of this.soldiers.slice()) if (this.soldiers.includes(s)) this.updateSoldier(s, dt);
     for (const f of this.foes.slice()) if (this.foes.includes(f)) this.updateFoe(f, dt);
     this.updateShips(dt);
+    for (const t of this.tribes) if (t.thiefAt != null && !t.defeated && this.time >= t.thiefAt) { t.thiefAt = null; this.launchThief(t); }
     this.updateSieges(dt);
+    this.updateThieves(dt);
     this.updateTowers(dt);
+    this.updateTribeTowers(dt);
     this.updateShots(dt);
     if ((this.realmT -= dt) <= 0) { this.realmT = 0.5; this.updateVision(); }
     if ((this.garT -= dt) <= 0) { this.garT = 2; this.assignGarrisons(); }
@@ -221,7 +259,7 @@ export const Realm = {
   updateVision() {
     const p = this.player;
     this.reveal(p.x, p.y, 8.5);
-    for (const s of this.settlers) this.reveal(s.x, s.y, 3.5);
+    for (const s of this.settlers) { const jb = s.job != null ? this.byId(s.job) : null; this.reveal(s.x, s.y, jb && jb.type === 'scout' ? 7 : 3.5); }
     for (const s of this.soldiers) if (s.state !== 'garrison') this.reveal(s.x, s.y, 5.5);
     const w = this.world;
     for (const t of this.tribes) if (!t.discovered && w.seen[w.i(t.cx, t.cy)]) this.discoverTribe(t, false);
@@ -326,11 +364,35 @@ export const Realm = {
     }
     return out;
   },
-  recipeOf(b) { return b.type === 'shipyard' ? SHIPYARD_LEVELS[Math.min(3, b.level || 1)].recipe : BUILDINGS[b.type].recipe; },
+  recipeOf(b) {
+    if (b.type === 'siege') return !(b.orders > 0) && b.ramOrders > 0 ? RAM_RECIPE : BUILDINGS.siege.recipe;   // Katapult, sonst Rammbock
+    return b.type === 'shipyard' ? SHIPYARD_LEVELS[Math.min(3, b.level || 1)].recipe : BUILDINGS[b.type].recipe;
+  },
   speedOf(b) { return b && b.type !== 'house' && b.type !== 'shipyard' && (b.level || 1) >= 2 ? UPGRADE.speed : 1; },
   radiusOf(b) {
     if (b.type === 'tower') return (b.level || 1) >= 2 ? TOWER_LEVELS[Math.min(3, b.level)].range : 0;   // Schussweite
     const def = BUILDINGS[b.type]; return (def.radius || 0) + (def.job && def.job !== 'farm' && (b.level || 1) >= 2 ? UPGRADE.radius : 0);
+  },
+  // Wachtürme der Stämme schießen auf deine Soldaten, Belagerungsgeräte und entdeckte Diebe
+  updateTribeTowers(dt) {
+    const B = CAMP_BUILD.tower;
+    for (const t of this.tribes) {
+      if (t.defeated || !t.builds) continue;
+      for (const b of t.builds) {
+        if (b.kind !== 'tower') continue;
+        if (b.swing > 0) b.swing -= dt;
+        if ((b.cd = (b.cd || 0) - dt) > 0) continue;
+        const cx = b.x + 1, cy = b.y + 1;
+        let tg = null, bd = B.range;
+        for (const s of this.soldiers) { if (s.state === 'garrison') continue; const d = Math.hypot(s.x - cx, s.y - cy); if (d <= bd) { bd = d; tg = s; } }
+        for (const c of this.sieges) { const d = Math.hypot(c.x - cx, c.y - cy); if (d <= bd) { bd = d; tg = c; } }
+        for (const th of this.thieves || []) { if (!th.spotted) continue; const d = Math.hypot(th.x - cx, th.y - cy); if (d <= bd) { bd = d; tg = th; } }
+        if (!tg) { b.cd = 0.4; continue; }
+        b.cd = B.cd * (0.9 + this.rng() * 0.2);
+        this.shoot({ kind: 'ttower', atk: B.atk * (1 + 0.25 * (this.tribeTier(t) - 1)), x: cx, y: cy }, tg, { x: cx, y: b.y - 0.8 });
+        b.swing = 0.3;
+      }
+    }
   },
   // ausgebaute Wachtürme schießen selbst auf den nächsten Krieger in Reichweite
   updateTowers(dt) {
@@ -650,7 +712,7 @@ export const Realm = {
   contactFoe(s) { return this.nearestFoe(s.x, s.y, s.type === 'archer' ? Math.max(CONTACT_R, this.rangeOf(s) + 1) : CONTACT_R); },
   // wer getroffen wird, wehrt sich (gegen Türme und Schiffe geht das nicht)
   provoke(u, by) {
-    if (!by || u.hp <= 0 || u.state === 'fight' || u.state === 'garrison') return;
+    if (!by || u.hp <= 0 || u.state === 'fight' || u.state === 'garrison' || u.mode === 'thief') return;
     if (u.kind === 'soldier' && by.kind === 'foe' && this.foes.includes(by)) Object.assign(u, { foe: by.id, state: 'fight', path: null, stuckT: 0 });
     else if (u.kind === 'foe' && by.kind === 'soldier' && this.soldiers.includes(by)) Object.assign(u, { foe: by.id, state: 'fight', path: null, repath: 0, stuckT: 0 });
   },
@@ -677,7 +739,7 @@ export const Realm = {
   /* ---------- Bewegung und Kampf ---------- */
   // mit Boot (ab dem ersten fertigen Boot) auch übers Wasser; fremde Krieger nur zu Fuß
   passFor(e) {
-    if (e && (e.kind === 'foe' || e.kind === 'catapult')) return null;
+    if (e && (e.kind === 'foe' || e.kind === 'catapult' || e.kind === 'ram')) return null;   // Diebe dürfen mit Booten übers Wasser
     if (e && e.kind === 'ship') return this.shipPass || (this.shipPass = (x, y) => this.world.isWater(x, y) || this.world.g(x, y) === G.BRIDGE);
     if (this.boats > 0) return this.sailPass || (this.sailPass = (x, y) => this.world.walkable(x, y) || this.world.isWater(x, y));
     return null;
@@ -744,10 +806,12 @@ export const Realm = {
       if (sh.t < sh.dur) continue;
       this.shots.splice(i, 1);
       if (sh.kind === 'stone') { this.stoneHit(sh); continue; }
-      const tg = (sh.tkind === 'soldier' ? this.soldiers : this.foes).find((u) => u.id === sh.tid);
+      const list = sh.tkind === 'soldier' ? this.soldiers : sh.tkind === 'catapult' || sh.tkind === 'ram' ? this.sieges : sh.tkind === 'thief' ? (this.thieves || []) : this.foes;
+      const tg = list.find((u) => u.id === sh.tid);
       if (!tg) continue;
-      tg.hp -= sh.dmg; tg.hurtT = 0.25;
-      if (tg.hp <= 0) this.killUnit(tg, sh.by); else this.provoke(tg, sh.by);
+      tg.hp -= sh.dmg * (tg.kind === 'ram' ? RAM.armor : 1); tg.hurtT = 0.25;
+      if (tg.hp <= 0) { if (list === this.sieges) this.destroySiege(tg); else if (tg.kind === 'thief') this.killThief(tg); else this.killUnit(tg, sh.by); }
+      else this.provoke(tg, sh.by);
     }
   },
   killUnit(u, by) {
@@ -766,7 +830,11 @@ export const Realm = {
     }
     this.foes = this.foes.filter((x) => x !== u);
     const t = this.tribes[u.tribe];
-    this.floatText(u.x, u.y - 0.7, u.type === 'chief' ? 'Häuptling besiegt!' : 'besiegt', '#ffe08a');
+    this.floatText(u.x, u.y - 0.7, u.type === 'chief' ? 'Häuptling besiegt!' : u.mode === 'thief' ? 'Dieb gefasst!' : 'besiegt', '#ffe08a');
+    if (u.mode === 'thief') {
+      if (u.coinsStolen) { this.coins += u.coinsStolen; u.coinsStolen = 0; }
+      this.toast(`Ein Dieb der ${t.name} wurde gefasst${u.loot || u.stole ? '. Die Beute ist zurück' : ''}.`);
+    }
     if (u.type === 'chief') { t.chiefDead = true; t.chiefOut = false; this.toast(`Der Häuptling der ${t.name} ist gefallen!`); }
     this.today.beaten = (this.today.beaten || 0) + 1;
     if (u.loot) {
@@ -786,9 +854,9 @@ export const Realm = {
   // jede Jahreszeit eine Stufe stärker (1 bis 4)
   tribeTier(t) { return Math.min(4, 1 + Math.floor((this.day - 1) / 10) + (t.bonus || 0)); },
   warriorHp(t) { return t.hp * (1 + 0.35 * (this.tribeTier(t) - 1)); },
-  warriorAtk(t) { return t.atk * (1 + 0.25 * (this.tribeTier(t) - 1)); },
+  warriorAtk(t) { return t.atk * (1 + 0.25 * (this.tribeTier(t) - 1)) * (1 + Math.min(25, t.weapons || 0) * 0.008); },
   chiefHp(t) { return FOE.chiefHp + FOE.chiefHpTier * this.tribeTier(t); },
-  foeSpeed(f) { return f.type === 'chief' ? 2.1 : f.mode === 'raid' ? FOE.raidSpeed : SETTLER_SPEED; },
+  foeSpeed(f) { return f.type === 'chief' ? 2.1 : f.mode === 'thief' ? 3 : f.mode === 'raid' ? FOE.raidSpeed : SETTLER_SPEED; },
   // ein Krieger: Speer, Bogen oder der Häuptling
   makeFoe(t, ti, mode, x, y, type) {
     const tier = this.tribeTier(t), hp = this.warriorHp(t), atk = this.warriorAtk(t);
@@ -816,7 +884,7 @@ export const Realm = {
     this.floatText(b.x + 1, b.y, 'brennt!', '#ff8a5a');
   },
   campDoor(t) { return { x: t.hall.x + 1, y: t.hall.y + 3 }; },
-  foesOf(ti) { let n = 0; for (const f of this.foes) if (f.tribe === ti) n++; return n; },
+  foesOf(ti) { let n = 0; for (const f of this.foes) if (f.tribe === ti && f.mode !== 'thief') n++; return n; },
   realmNewDay() {
     const army = this.soldiers.length, due = [];
     this.tribes.forEach((t, ti) => {
@@ -825,11 +893,23 @@ export const Realm = {
       t.cap0 = t.cap0 || t.cap;
       t.cap = t.cap0 + Math.round(this.day * 0.4 + army * 0.25);
       t.acc += t.grow * (1 + this.day / 20);
+      t.weapons = Math.min(60, (t.weapons || 0) + 1);
+      const tg = t.goods || (t.goods = { coins: 0, bread: 0, wood: 0 }), tier = this.tribeTier(t);
+      tg.coins = Math.min(500, (tg.coins || 0) + 8 * tier); tg.bread = Math.min(40, (tg.bread || 0) + 2); tg.wood = Math.min(60, (tg.wood || 0) + 3);
       while (t.acc >= 1) { t.acc--; if (t.warriors + this.foesOf(ti) < t.cap) t.warriors++; }
       if (t.island || this.day < FIRST_RAID || t.peaceUntil >= this.day) return;
       t.raidIn--;
       if (t.raidIn <= 0) due.push(t);
     });
+    // ab Tag 6 schleicht sich alle paar Tage ein Dieb eines Stammes zu deinem Lager
+    if (this.day >= 6 && this.day >= (this.thiefCalm || 0)) {
+      const cands = this.tribes.filter((t) => !t.defeated && !t.island && t.peaceUntil < this.day && t.thiefAt == null);
+      if (cands.length) {
+        const t = cands[Math.floor(this.rng() * cands.length)];
+        t.thiefAt = (3 + this.rng() * 8) * SEC_PER_HOUR;
+        this.thiefCalm = this.day + 4 + Math.floor(this.rng() * 4);
+      }
+    }
     if (!due.length) return;
     // höchstens ein Überfall auf einmal, danach einige Tage Ruhe; wer gerade nicht darf, wartet ein paar Tage
     const busy = this.day < (this.raidCalm || 0) || this.tribes.some((t) => t.raid || t.raidAt != null) || this.foes.some((f) => f.mode === 'raid');
@@ -888,6 +968,7 @@ export const Realm = {
     const t = this.tribes[f.tribe];
     this.foes = this.foes.filter((x) => x !== f);
     if (f.type === 'chief') t.chiefOut = false;
+    else if (f.mode === 'thief') { if (f.coinsStolen && t.goods) t.goods.coins = (t.goods.coins || 0) + f.coinsStolen; }
     else if (!t.defeated) t.warriors++;
     if (f.mode === 'raid' && t.raid) { t.raid.home++; this.raidCheck(t); }
   },
@@ -922,13 +1003,14 @@ export const Realm = {
       this.engage(f, tg, dt, this.foeSpeed(f));
       return;
     }
+    if (f.mode === 'thief') return this.updateFoeThief(f, t, door, dt);
     if ((f.think -= dt) <= 0) {
       f.think = 0.4;
       const s = this.nearestSoldier(f.x, f.y, f.mode === 'defend' ? 8 : f.range > 1.5 ? Math.max(CONTACT_R, f.range + 1) : CONTACT_R);
       if (s && (f.mode !== 'defend' || Math.hypot(s.x - t.cx - 0.5, s.y - t.cy - 0.5) <= ALARM_R + 2)) { f.foe = s.id; f.state = 'fight'; f.path = null; f.repath = 0; f.stuckT = 0; return; }
     }
     if (f.mode === 'sally') {   // aus dem Lager gestürmt, um ein Katapult zu zerschlagen
-      const c = this.sieges.find((x) => x.id === f.target);
+      const c = this.sieges.find((x) => x.id === f.target) || this.thieves.find((x) => x.id === f.target && x.state !== 'home');
       if (!c || t.defeated) { f.mode = 'raid'; f.state = 'flee'; f.path = null; return; }
       const dc = dist(f, c);
       if (dc > 1.1 && dc < 2.2) {   // letztes Stück direkt heran (auch schräg neben dem Katapult)
@@ -939,7 +1021,7 @@ export const Realm = {
       }
       if (dc <= 1.1) {
         f.path = null;
-        if (f.cd <= 0) { f.cd = (f.cdT || HIT_CD) * (0.9 + this.rng() * 0.2); f.swing = 0.3; c.hp -= f.atk * (0.75 + this.rng() * 0.5); c.hurtT = 0.25; this.sound('clash', c.x, c.y); if (c.hp <= 0) this.destroyCatapult(c); }
+        if (f.cd <= 0) { f.cd = (f.cdT || HIT_CD) * (0.9 + this.rng() * 0.2); f.swing = 0.3; c.hp -= f.atk * (0.75 + this.rng() * 0.5) * (c.kind === 'ram' ? RAM.armor : 1); c.hurtT = 0.25; this.sound('clash', c.x, c.y); if (c.hp <= 0) { if (c.kind === 'thief') this.killThief(c); else this.destroySiege(c); } }
         return;
       }
       if (!f.path || (f.repath = (f.repath || 0) - dt) <= 0) { f.repath = 1; this.unitGo(f, (x, y) => Math.max(Math.abs(x - Math.floor(c.x)), Math.abs(y - Math.floor(c.y))) <= 1, Math.floor(c.x), Math.floor(c.y), 30000); }
@@ -1016,11 +1098,14 @@ export const Realm = {
   captureCamp(t) {
     const ti = this.tribes.indexOf(t), w = this.world;
     t.defeated = true; t.warriors = 0; t.raidAt = null;
-    for (const r of [t.hall, ...t.huts]) for (let dy = 0; dy < r.h; dy++) for (let dx = 0; dx < r.w; dx++) { w.tstruct[w.i(r.x + dx, r.y + dy)] = -1; w.touch(r.x + dx, r.y + dy); }
+    for (const r of [t.hall, ...t.huts, ...(t.builds || [])]) for (let dy = 0; dy < r.h; dy++) for (let dx = 0; dx < r.w; dx++) { w.tstruct[w.i(r.x + dx, r.y + dy)] = -1; w.touch(r.x + dx, r.y + dy); }
     const fort = this.forcePlace('fort', t.hall.x, t.hall.y, true);
     fort.tribe = ti;
-    const loot = { iron: 4, sword: 2, bread: 8, plank: 10 };
-    const coins = 80 + 30 * this.stats.conquered;
+    const tg = t.goods || {};
+    const all = { iron: 4, sword: 2 + Math.floor((t.weapons || 0) / 3), bread: 8 + (tg.bread || 0), plank: 10, wood: tg.wood || 0 }, loot = {};
+    for (const k in all) if (all[k] > 0) loot[k] = all[k];
+    const coins = 80 + 30 * this.stats.conquered + (tg.coins || 0);
+    t.weapons = 0; t.goods = { coins: 0, bread: 0, wood: 0 };
     for (const k in loot) this.stock[k] = (this.stock[k] || 0) + loot[k];
     this.coins += coins;
     const here = this.soldiers.filter((s) => s.campaign === ti).sort((a, c) => Math.hypot(a.x - t.cx, a.y - t.cy) - Math.hypot(c.x - t.cx, c.y - t.cy));
@@ -1133,20 +1218,31 @@ export const Realm = {
     return n;
   },
   /* ---------- Belagerung ---------- */
-  // Katapulte rollen in Schussweite und beschießen die Hütten eines Lagers
+  // Ziele im Lager: erst Wachtürme, dann Häuser, dann Hütten
+  campTargets(t) { const b = t.builds || []; return [...b.filter((x) => x.kind === 'tower'), ...b.filter((x) => x.kind === 'house'), ...t.huts]; },
+  firstTargets(t) { const all = this.campTargets(t); if (!all.length) return all; const kind = all[0].kind || 'hut'; return all.filter((x) => (x.kind || 'hut') === kind); },
+  // Katapulte rollen in Schussweite, Rammböcke bis an die Gebäude
   siegeTribe(ti, n) {
     const t = this.tribes[ti];
     if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
-    if (t.island) return 'Auf die Insel kommen keine Katapulte.';
-    const free = (this.catapults || 0) - this.sieges.length;
-    if (free <= 0) return 'Kein Katapult bereit. Bestell eins beim Geschützbauer.';
+    if (t.island) return 'Auf die Insel kommen keine Belagerungsgeräte.';
+    const freeC = (this.catapults || 0) - this.sieges.filter((c) => c.kind === 'catapult').length;
+    const freeR = (this.rams || 0) - this.sieges.filter((c) => c.kind === 'ram').length;
+    if (freeC <= 0 && freeR <= 0) return 'Kein Katapult und kein Rammbock bereit. Bestell sie beim Geschützbauer.';
     if (!this.attackSources(t).length) return 'Kein eigenes Militärgebäude in Reichweite. Bau einen Wachturm näher am Lager.';
-    if (!t.huts.length) return 'Alle Hütten dieses Lagers sind schon zerstört.';
+    if (!this.campTargets(t).length) return 'In diesem Lager steht nichts mehr, was man zerstören könnte.';
     const home = this.buildings.find((b) => b.type === 'siege' && b.built) || this.buildings.find((b) => b.type === 'barracks' && b.built) || this.nearestStorage(t.cx, t.cy);
-    if (!home) return 'Kein Ort, von dem Katapulte losrollen können.';
-    const d = this.door(home), k = Math.min(n, free);
-    for (let i = 0; i < k; i++) this.sieges.push({ id: this.nextId++, kind: 'catapult', x: d.x + 0.5, y: d.y + 0.5 + i * 0.2, home: home.id, campaign: ti, state: 'roll', hp: CATAPULT.hp, maxHp: CATAPULT.hp, cd: 0, path: null, pi: 0, facing: 2, swing: 0, hurtT: 0, walkT: 0, repath: i * 0.4 });
-    this.toast(`${k === 1 ? 'Ein Katapult rollt' : `${k} Katapulte rollen`} zum Lager der ${t.name}. Schick Soldaten zum Schutz mit.`);
+    if (!home) return 'Kein Ort, von dem die Geräte losrollen können.';
+    const d = this.door(home), kc = Math.min(n, freeC), kr = Math.min(2, freeR);
+    const add = (kind, i) => {
+      const hp = kind === 'ram' ? RAM.hp : CATAPULT.hp;
+      this.sieges.push({ id: this.nextId++, kind, x: d.x + 0.5, y: d.y + 0.5 + i * 0.2, home: home.id, campaign: ti, state: 'roll', hp, maxHp: hp, cd: 0, path: null, pi: 0, facing: 2, swing: 0, hurtT: 0, walkT: 0, repath: i * 0.4, target: null });
+    };
+    for (let i = 0; i < kc; i++) add('catapult', i);
+    for (let i = 0; i < kr; i++) add('ram', kc + i);
+    const word = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
+    const parts = [kc ? word(kc, 'ein Katapult', 'Katapulte') : '', kr ? word(kr, 'ein Rammbock', 'Rammböcke') : ''].filter(Boolean).join(' und ');
+    this.toast(`${parts[0].toUpperCase()}${parts.slice(1)} ${kc + kr === 1 ? 'rollt' : 'rollen'} zum Lager der ${t.name}. Schick Soldaten zum Schutz mit.`);
     return null;
   },
   updateSieges(dt) {
@@ -1155,11 +1251,12 @@ export const Realm = {
       if (c.hurtT > 0) c.hurtT -= dt;
       if (c.swing > 0) c.swing -= dt;
       const t = this.tribes[c.campaign];
-      if (c.state !== 'return' && (!t || t.defeated || !t.huts.length)) { c.state = 'return'; c.path = null; }
-      if (c.state === 'fire') {
+      if (c.state !== 'return' && (!t || t.defeated || !this.campTargets(t).length)) { c.state = 'return'; c.path = null; }
+      const ram = c.kind === 'ram';
+      if (c.state === 'fire') {   // Katapult schießt auf die wichtigsten Ziele
         if ((c.cd -= dt) > 0) continue;
         c.cd = CATAPULT.cd * (0.9 + this.rng() * 0.2);
-        const h = t.huts[Math.floor(this.rng() * t.huts.length)];
+        const list = this.firstTargets(t), h = list[Math.floor(this.rng() * list.length)];
         const x0 = c.x, y0 = c.y - 0.6, x1 = h.x + 1, y1 = h.y + 1;
         this.shots.push({ x0, y0, x1, y1, t: 0, dur: 0.7 + Math.hypot(x1 - x0, y1 - y0) * 0.07, kind: 'stone', tribe: c.campaign, hx: h.x, hy: h.y });
         c.swing = 0.6; c.facing = x1 >= c.x ? 1 : 3;
@@ -1167,44 +1264,68 @@ export const Realm = {
         this.sallyFor(t, c);
         continue;
       }
+      if (c.state === 'ram') {   // Rammbock stößt gegen das Gebäude, neben dem er steht
+        const tg = this.campTargets(t).find((x) => x.x === c.target.x && x.y === c.target.y);
+        if (!tg) { c.state = 'roll'; c.path = null; c.repath = 0; continue; }
+        if ((c.cd -= dt) > 0) continue;
+        c.cd = RAM.cd;
+        c.swing = 0.5; c.facing = tg.x + 1 >= c.x ? 1 : 3;
+        this.sound('crash', c.x, c.y);
+        this.damageStructure(t, tg, RAM.dmg);
+        this.sallyFor(t, c);
+        continue;
+      }
       if (!c.path) {
         if ((c.repath = (c.repath || 0) - dt) > 0) continue;
         c.repath = 1;
         let r = null;
-        if (c.state === 'roll') r = this.unitGo(c, (x, y) => { const dd = Math.hypot(x - t.cx, y - t.cy); return dd >= 8 && dd <= CATAPULT.range - 1; }, t.cx, t.cy, 300000);
+        if (c.state === 'roll' && ram) {   // wichtigstes erreichbare Ziel: Türme vor Häusern vor Hütten, nahe zuerst
+          const rank = { tower: 0, house: 1 }, skip = c.skip || (c.skip = []);
+          const cands = this.campTargets(t).filter((x) => !skip.includes(x.x * 4096 + x.y))
+            .sort((a, b) => (rank[a.kind] ?? 2) - (rank[b.kind] ?? 2) || Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+          for (const tg of cands.slice(0, 4)) {
+            r = this.unitGo(c, nextToRect(tg.x, tg.y, 2, 2), tg.x + 1, tg.y + 1, 300000);
+            if (r) { c.target = { x: tg.x, y: tg.y }; break; }
+            skip.push(tg.x * 4096 + tg.y);
+          }
+          if (!r && cands.length > 4) { c.repath = 0.2; continue; }   // weitere Ziele beim nächsten Mal versuchen
+        } else if (c.state === 'roll') r = this.unitGo(c, (x, y) => { const dd = Math.hypot(x - t.cx, y - t.cy); return dd >= 8 && dd <= CATAPULT.range - 1; }, t.cx, t.cy, 300000);
         else { const home = this.byId(c.home) || this.nearestStorage(c.x, c.y); if (home) r = this.unitGo(c, nextToRect(home.x, home.y, home.w, home.h), home.x + 1, home.y + 1, 300000); }
-        if (r === 'here') { if (c.state === 'roll') { c.state = 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
-        else if (!r) { if (c.state === 'roll') { this.toast('Ein Katapult findet keinen Weg zum Lager und rollt zurück.'); c.state = 'return'; } else this.sieges = this.sieges.filter((x) => x !== c); }
+        if (r === 'here') { if (c.state === 'roll') { c.state = ram ? 'ram' : 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
+        else if (!r) { if (c.state === 'roll') { this.toast(`${ram ? 'Ein Rammbock' : 'Ein Katapult'} findet keinen Weg zum Lager und rollt zurück.`); c.state = 'return'; } else this.sieges = this.sieges.filter((x) => x !== c); }
         continue;
       }
-      const r = this.follow(c, dt * CATAPULT.speed);
-      if (r === true) { c.path = null; if (c.state === 'roll') { c.state = 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
+      const r = this.follow(c, dt * (ram ? RAM.speed : CATAPULT.speed));
+      if (r === true) { c.path = null; if (c.state === 'roll') { c.state = ram ? 'ram' : 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
       else if (r === 'blocked') c.path = null;
     }
   },
-  // Stein schlägt ein: Hütte beschädigt, Krieger in der Nähe verletzt
+  // Stein schlägt ein: Gebäude beschädigt, Krieger in der Nähe verletzt
   stoneHit(sh) {
     const t = this.tribes[sh.tribe];
     this.sound('crash', sh.x1, sh.y1);
     if (!t || t.defeated) return;
     for (const f of this.foes.slice()) if (f.tribe === sh.tribe && Math.hypot(f.x - sh.x1, f.y - sh.y1) < 1.6) { f.hp -= CATAPULT.splash; f.hurtT = 0.25; if (f.hp <= 0) this.killUnit(f, null); }
-    const h = t.huts.find((x) => x.x === sh.hx && x.y === sh.hy);
-    if (!h) return;
-    h.hp = (h.hp == null ? CATAPULT.hutHp : h.hp) - 1;
-    if (h.hp <= 0) this.destroyHut(t, h);
+    const h = this.campTargets(t).find((x) => x.x === sh.hx && x.y === sh.hy);
+    if (h) this.damageStructure(t, h, 1);
   },
-  destroyHut(t, h) {
+  damageStructure(t, h, dmg) {
+    const max = h.kind ? CAMP_BUILD[h.kind].hp : CATAPULT.hutHp;
+    h.hp = (h.hp == null ? max : h.hp) - dmg;
+    if (h.hp > 0) return;
     const ti = this.tribes.indexOf(t), w = this.world;
-    t.huts = t.huts.filter((x) => x !== h);
+    if (h.kind) t.builds = t.builds.filter((x) => x !== h); else t.huts = t.huts.filter((x) => x !== h);
     for (let dy = 0; dy < h.h; dy++) for (let dx = 0; dx < h.w; dx++) { const k = w.i(h.x + dx, h.y + dy); if (w.tstruct[k] === ti) w.tstruct[k] = -1; w.touch(h.x + dx, h.y + dy); }
-    const lost = Math.min(t.warriors, CATAPULT.perHut);
+    const per = h.kind === 'house' ? CAMP_BUILD.house.warriors : h.kind === 'tower' ? 0 : CATAPULT.perHut;
+    const lost = Math.min(t.warriors, per);
     t.warriors -= lost;
-    t.cap0 = Math.max(6, (t.cap0 || t.cap) - CATAPULT.perHut); t.cap = Math.max(t.cap0, t.cap - CATAPULT.perHut);
+    if (per) { t.cap0 = Math.max(6, (t.cap0 || t.cap) - per); t.cap = Math.max(t.cap0, t.cap - per); }
+    const name = h.kind === 'tower' ? 'Ein Wachturm' : h.kind === 'house' ? 'Ein Haus' : 'Eine Hütte';
     this.floatText(h.x + 1, h.y, 'zerstört', '#ffb35a');
-    this.toast(`Eine Hütte der ${t.name} ist eingestürzt${lost ? `, ${lost} Krieger weniger` : ''}.`);
-    this.today.events.push(`Deine Katapulte haben eine Hütte der ${t.name} zerstört.`);
+    this.toast(`${name} der ${t.name} ist eingestürzt${lost ? `, ${lost} Krieger weniger` : ''}.`);
+    this.today.events.push(`${name} der ${t.name} wurde zerstört.`);
   },
-  // das Lager schickt Krieger los, um das Katapult zu zerschlagen (höchstens alle 30 s)
+  // das Lager schickt Krieger los, um das Gerät zu zerschlagen (höchstens alle 30 s)
   sallyFor(t, c) {
     if (t.warriors <= 0 || (t.sallyT || 0) > this.clock) return;
     t.sallyT = this.clock + 30;
@@ -1216,14 +1337,165 @@ export const Realm = {
     }
     t.warriors -= n;
     if (!t.discovered) this.discoverTribe(t, true);
-    this.toast(`Die ${t.name} schicken ${n} Krieger gegen dein Katapult!`);
+    this.toast(`Die ${t.name} schicken ${n} Krieger gegen ${c.kind === 'ram' ? 'deinen Rammbock' : c.kind === 'thief' ? 'deinen Dieb' : 'dein Katapult'}!`);
   },
-  destroyCatapult(c) {
+  destroySiege(c) {
     this.sieges = this.sieges.filter((x) => x !== c);
-    this.catapults = Math.max(0, (this.catapults || 0) - 1);
+    if (c.kind === 'ram') this.rams = Math.max(0, (this.rams || 0) - 1); else this.catapults = Math.max(0, (this.catapults || 0) - 1);
     this.sound('crash', c.x, c.y);
     this.floatText(c.x, c.y - 0.6, 'zerschlagen', '#ff9a8a');
-    this.toast('Ein Katapult wurde zerschlagen.');
+    this.toast(c.kind === 'ram' ? 'Ein Rammbock wurde zerschlagen.' : 'Ein Katapult wurde zerschlagen.');
+  },
+  /* ---------- Diebe ---------- */
+  makeThief(home, x, y, id) { return { id: id != null ? id : this.nextId++, kind: 'thief', home, x, y, state: 'home', target: null, loot: null, hp: THIEF.hp, maxHp: THIEF.hp, spotted: false, path: null, pi: 0, facing: 2, walkT: 0, timer: 0, hurtT: 0 }; },
+  // ein freier Siedler wird im Diebesversteck zum Dieb
+  trainThief(b) {
+    if (!b || !b.built) return 'Das Diebesversteck ist noch nicht fertig.';
+    if (this.coins < THIEF.coins) return `Ein Dieb kostet ${THIEF.coins} Münzen.`;
+    const d = this.door(b);
+    const free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !s.haul && !(s.task && s.task.site != null))
+      .sort((a, c) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(c.x - d.x, c.y - d.y));
+    if (!free.length) return 'Kein Siedler ist frei. Bau Wohnhäuser, dann kommen mehr.';
+    this.removeSettler(free[0]);
+    this.coins -= THIEF.coins;
+    this.thieves.push(this.makeThief(b.id, d.x + 0.5, d.y + 0.5));
+    this.sound('train', d.x, d.y);
+    return null;
+  },
+  thievesReady() { return this.thieves.filter((h) => h.state === 'home'); },
+  sendThief(ti) {
+    const t = this.tribes[ti];
+    if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
+    const h = this.thievesReady()[0];
+    if (!h) return 'Kein Dieb bereit. Bilde einen im Diebesversteck aus.';
+    const door = this.campDoor(t);
+    const r = this.unitGo(h, (x, y) => Math.abs(x - door.x) <= 1 && Math.abs(y - door.y) <= 1, door.x, door.y, 300000);
+    if (!r) return t.island && this.boats <= 0 ? 'Auf die Insel kommt ein Dieb nur mit einem Boot.' : 'Der Dieb findet keinen Weg dorthin.';
+    Object.assign(h, { target: ti, state: r === 'here' ? 'steal' : 'sneak', timer: THIEF.steal, spotted: false, loot: null });
+    this.toast(`Ein Dieb schleicht sich zum Lager der ${t.name}.`);
+    return null;
+  },
+  // wird der Dieb in der Nähe des Lagers entdeckt? (einmal je Sekunde)
+  thiefSpotCheck(h, t, dt, factor = 1) {
+    if (h.spotted || Math.hypot(h.x - t.cx, h.y - t.cy) > THIEF.zone) return false;
+    h.spotT = (h.spotT || 0) + dt;
+    if (h.spotT < 1) return false;
+    h.spotT -= 1;
+    const towers = (t.builds || []).filter((b) => b.kind === 'tower').length;
+    const p = Math.min(THIEF.maxSpot, THIEF.spot + THIEF.spotPer * t.warriors + THIEF.spotTower * towers) * factor;
+    if (this.rng() >= p) return false;
+    h.spotted = true;
+    this.toast(`Dein Dieb wurde bei den ${t.name} entdeckt und rennt davon!`);
+    if (h.loot) this.sallyFor(t, h);   // gejagt wird er nur mit Beute; vorher schießen bloß die Türme
+    return true;
+  },
+  thiefHome(h) {
+    const home = this.byId(h.home) || this.nearestStorage(h.x, h.y) || this.buildings[0];
+    return home;
+  },
+  updateThieves(dt) {
+    for (const h of this.thieves.slice()) {
+      if (!this.thieves.includes(h)) continue;
+      if (h.hurtT > 0) h.hurtT -= dt;
+      const t = h.target != null ? this.tribes[h.target] : null;
+      if (h.state === 'home') { h.hp = Math.min(h.maxHp, h.hp + dt * 0.5); continue; }
+      if ((h.state === 'sneak' || h.state === 'steal') && (!t || t.defeated)) { h.state = 'escape'; h.path = null; }
+      if (h.state === 'sneak') {
+        if (this.thiefSpotCheck(h, t, dt)) { h.state = 'escape'; h.path = null; continue; }
+        const near = Math.hypot(h.x - t.cx, h.y - t.cy) <= THIEF.zone;
+        if (!h.path) { const door = this.campDoor(t); const r = this.unitGo(h, (x, y) => Math.abs(x - door.x) <= 1 && Math.abs(y - door.y) <= 1, door.x, door.y, 300000); if (r === 'here') { h.state = 'steal'; h.timer = THIEF.steal; } else if (!r) { h.state = 'escape'; } continue; }
+        const r = this.follow(h, dt * (near ? THIEF.sneak : THIEF.speed));
+        if (r === true) { h.path = null; h.state = 'steal'; h.timer = THIEF.steal; } else if (r === 'blocked') h.path = null;
+        continue;
+      }
+      if (h.state === 'steal') {
+        if (this.thiefSpotCheck(h, t, dt, 1.5)) { h.state = 'escape'; h.path = null; continue; }
+        if ((h.timer -= dt) > 0) continue;
+        const T = THIEF.take, g = t.goods || (t.goods = { coins: 0, bread: 0, wood: 0 });
+        if ((t.weapons || 0) >= 1) { const n = Math.min(T.weapons, t.weapons); t.weapons -= n; h.loot = { sword: Math.ceil(n / 2), bow: Math.floor(n / 2) }; }
+        else if ((g.coins || 0) >= 10) { const n = Math.min(T.coins, g.coins); g.coins -= n; h.loot = { coins: n }; }
+        else { const k = (g.bread || 0) >= (g.wood || 0) ? 'bread' : 'wood', n = Math.min(T.goods, g[k] || 0); if (n > 0) { g[k] -= n; h.loot = { [k]: n }; } }
+        this.floatText(h.x, h.y - 0.8, h.loot ? 'gestohlen!' : 'nichts zu holen', '#ffd25a');
+        h.state = 'escape'; h.path = null;
+        continue;
+      }
+      // escape: zurück ins Versteck, auf dem Weg aus dem Lager kann er noch entdeckt werden
+      if (t) this.thiefSpotCheck(h, t, dt);
+      const home = this.thiefHome(h);
+      if (!home) continue;
+      if (!h.path) {
+        const r = this.unitGo(h, nextToRect(home.x, home.y, home.w, home.h), home.x + 1, home.y + 1, 300000);
+        if (r === 'here' || !r) this.thiefArrives(h);
+        continue;
+      }
+      const r = this.follow(h, dt * (h.spotted ? THIEF.run : THIEF.speed));
+      if (r === true) this.thiefArrives(h); else if (r === 'blocked') h.path = null;
+    }
+  },
+  thiefArrives(h) {
+    if (h.loot) {
+      const parts = [];
+      for (const k in h.loot) {
+        if (!h.loot[k]) continue;
+        if (k === 'coins') this.coins += h.loot[k]; else this.stock[k] = (this.stock[k] || 0) + h.loot[k];
+        parts.push(k === 'coins' ? `${h.loot[k]} Münzen` : `${h.loot[k]} ${ITEMS[k].name}`);
+      }
+      const t = this.tribes[h.target];
+      this.toast(`Dein Dieb ist zurück: ${parts.join(', ')}${t ? ` von den ${t.name}` : ''}.`);
+      this.today.events.push(`Dein Dieb hat ${parts.join(', ')} gestohlen.`);
+      this.sound('coin');
+    }
+    Object.assign(h, { state: 'home', target: null, loot: null, spotted: false, path: null, spotT: 0 });
+  },
+  killThief(h) {
+    this.thieves = this.thieves.filter((x) => x !== h);
+    this.sound('die', h.x, h.y);
+    this.floatText(h.x, h.y - 0.7, 'gefasst', '#ff9a8a');
+    this.toast('Dein Dieb wurde gefasst.');
+  },
+  // ein Dieb eines Stammes schleicht zu deinem Lager
+  launchThief(t) {
+    const ti = this.tribes.indexOf(t), st = this.nearestStorage(t.cx, t.cy);
+    if (!st) return;
+    const d = this.campDoor(t);
+    const f = this.makeFoe(t, ti, 'thief', d.x + 0.5, d.y + 0.5, 'thief');
+    Object.assign(f, { state: 'march', target: st.id, hp: 8, maxHp: 8 });
+    this.foes.push(f);
+  },
+  updateFoeThief(f, t, door, dt) {
+    if (f.state === 'march') {
+      let st = this.byId(f.target);
+      if (!st || st.type !== 'storage') { st = this.nearestStorage(f.x, f.y); if (!st) { f.state = 'flee'; return; } f.target = st.id; f.path = null; }
+      if (!f.path) {
+        const r = this.unitGo(f, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 300000);
+        if (r === 'here') { f.state = 'steal'; f.timer = 2; } else if (!r) f.state = 'flee';
+        return;
+      }
+      const r = this.follow(f, dt * 2.2);   // schleicht
+      if (r === true) { f.state = 'steal'; f.timer = 2; } else if (r === 'blocked') f.path = null;
+      return;
+    }
+    if (f.state === 'steal') {
+      if ((f.timer -= dt) > 0) return;
+      const n = Math.min(this.coins, Math.max(10, Math.round(this.coins * 0.05)), 120);
+      if (n >= 10) { this.coins -= n; f.coinsStolen = n; f.stole = true; this.toast(`Ein Dieb der ${t.name} hat ${n} Münzen gestohlen! Fang ihn, bevor er entkommt.`); }
+      else {
+        const k = STOCK_ORDER.filter((x) => (this.stock[x] || 0) > 0).sort((a, c) => ITEMS[c].price - ITEMS[a].price)[0];
+        if (k) { const m = Math.min(this.stock[k], Math.max(1, Math.ceil(40 / ITEMS[k].price))); this.stock[k] -= m; f.loot = { [k]: m }; f.stole = true; this.toast(`Ein Dieb der ${t.name} hat ${m} ${ITEMS[k].name} gestohlen! Fang ihn, bevor er entkommt.`); }
+      }
+      this.sound('raid');
+      f.state = 'flee'; f.path = null;
+      return;
+    }
+    // flee: schnell zurück ins Lager
+    if (t.defeated) { this.foes = this.foes.filter((x) => x !== f); return; }
+    if (!f.path) {
+      const r = this.unitGo(f, (x, y) => x === door.x && y === door.y, door.x, door.y, 300000);
+      if (r !== 'go') this.foeHome(f);
+      return;
+    }
+    const r = this.follow(f, dt * this.foeSpeed(f));
+    if (r === true) this.foeHome(f); else if (r === 'blocked') f.path = null;
   },
   boatSeats() { let n = 0; for (let t = 1; t < this.fleet.length; t++) n += (this.fleet[t] || 0) * SHIPYARD_LEVELS[t].seats; return n; },
   fleetText() { return [3, 2, 1].filter((t) => this.fleet[t] > 0).map((t) => `${this.fleet[t]} ${this.fleet[t] === 1 ? SHIPYARD_LEVELS[t].boat : SHIPYARD_LEVELS[t].boats}`).join(', ') || 'keine Boote'; },
@@ -1268,7 +1540,8 @@ export const Realm = {
   saveRealm() {
     return {
       tribes: this.tribes.map((t, i) => ({ ...t, raid: null, sallyT: 0, warriors: t.warriors + this.foesOf(i) })),
-      raidCalm: this.raidCalm || 0, bal: BALANCE, catapults: this.catapults || 0,
+      raidCalm: this.raidCalm || 0, thiefCalm: this.thiefCalm || 0, bal: BALANCE, catapults: this.catapults || 0, rams: this.rams || 0,
+      thieves: (this.thieves || []).map((h) => ({ id: h.id, home: h.home, x: h.x, y: h.y })),
       soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
@@ -1286,7 +1559,8 @@ export const Realm = {
     });
     this.markCamps();
     this.raidCalm = d.raidCalm || 0;
-    this.catapults = d.catapults || 0;
-    if ((d.bal || 0) < BALANCE) this.rebalance();
+    this.catapults = d.catapults || 0; this.rams = d.rams || 0; this.thiefCalm = d.thiefCalm || 0;
+    this.thieves = (d.thieves || []).map((h) => this.makeThief(h.home, h.x, h.y, h.id));
+    if ((d.bal || 0) < BALANCE) this.rebalance(d.bal || 0);
   },
 };

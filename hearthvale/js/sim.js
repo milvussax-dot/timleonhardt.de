@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE, CARRY_MAX, CARRIER_ROAD, OUT_MAX,
-} from './data.js?v=16';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=16';
-import { Realm } from './realm.js?v=16';
+} from './data.js?v=17';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=17';
+import { Realm } from './realm.js?v=17';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
@@ -510,6 +510,7 @@ export class Game {
     }
     if (def.job === 'process') return this.thinkProcess(s, b, def);
     if (def.job === 'farm') return this.thinkFarm(s, b, def);
+    if (def.job === 'scout') return this.thinkScout(s, b, def);
     return this.thinkGather(s, b, def);
   }
 
@@ -573,6 +574,24 @@ export class Game {
     s.path = target.path; s.pi = 0; s.dest = { goal: nextTo(target.x, target.y), hx: target.x, hy: target.y };
     if (!s.path.length) { s.path = null; s.state = 'atTarget'; }
   }
+  // Erkunder: läuft zu einer unerkundeten Stelle im Umkreis der Späherhütte und schaut sich dort um
+  thinkScout(s, b, def) {
+    if (s.state === 'working') return;
+    const w = this.world, cx = b.x + 1, cy = b.y + 1, R = this.radiusOf(b);
+    let goal = null;
+    for (let i = 0; i < 60 && !goal; i++) {
+      const a = this.rng() * Math.PI * 2, r = 5 + this.rng() * (R - 5);
+      const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r);
+      if (w.inb(x, y) && !w.seen[w.i(x, y)] && w.walkable(x, y) && !this.isBad(w.i(x, y))) goal = { x, y };
+    }
+    if (!goal) return this.waitAtDoor(s, b, 'Rund um die Späherhütte gibt es gerade nichts Unerkundetes, das er erreicht. Bau eine weitere weiter draußen.', 4);
+    const path = findPath(w, Math.floor(s.x), Math.floor(s.y), (x, y) => x === goal.x && y === goal.y, goal.x, goal.y, 30000, this.passFor(s));
+    if (!path) { this.markBad(w.i(goal.x, goal.y)); s.timer = 0.3; return; }
+    s.why = 'Erkundet das Tal.';
+    s.task = { job: 'scout', x: goal.x, y: goal.y };
+    s.path = path.length ? path : null; s.pi = 0; s.after = 'atTarget'; s.dest = { goal: (x, y) => x === goal.x && y === goal.y, hx: goal.x, hy: goal.y };
+    s.state = path.length ? 'walk' : 'atTarget';
+  }
   // sucht das nächste passende Ziel im Radius des Gebäudes, das erreichbar ist
   findTarget(s, b, def) {
     const w = this.world, cx = b.x + 1, cy = b.y + 1, R = this.radiusOf(b);
@@ -602,6 +621,7 @@ export class Game {
       return w.walkable(x + 1, y) || w.walkable(x - 1, y) || w.walkable(x, y + 1) || w.walkable(x, y - 1);
     }
     if (job === 'ore') return (o && o.t === 'rock') || (g === G.MOUNTAIN && (w.walkable(x + 1, y) || w.walkable(x - 1, y) || w.walkable(x, y + 1) || w.walkable(x, y - 1)));
+    if (job === 'scout') return !w.seen[w.i(x, y)];
     if (job === 'fish') return (g === G.WATER) && (w.walkable(x + 1, y) || w.walkable(x - 1, y) || w.walkable(x, y + 1) || w.walkable(x, y - 1));
     if (job === 'plant') {
       if (!w.isFree(x, y) || this.season === 3) return false;
@@ -670,7 +690,7 @@ export class Game {
     const r = this.recipeOf(b), w = this.world;
     if (s.state === 'working') return;
     if (b.type === 'shipyard' && !(b.orders > 0) && !s.carry) return this.waitAtDoor(s, b, 'Kein Boot bestellt. Bestell eins hier im Menü der Werft.');
-    if (b.type === 'siege' && !(b.orders > 0) && !s.carry) return this.waitAtDoor(s, b, 'Kein Katapult bestellt. Bestell eins hier im Menü.');
+    if (b.type === 'siege' && !(b.orders > 0) && !(b.ramOrders > 0) && !s.carry) return this.waitAtDoor(s, b, 'Nichts bestellt. Bestell hier im Menü ein Katapult oder einen Rammbock.');
     const atB = nextToRect(b.x, b.y, b.w, b.h)(Math.floor(s.x), Math.floor(s.y));
     // Fertige Ware wegbringen
     const outItem = Object.keys(r.out)[0];
@@ -725,6 +745,7 @@ export class Game {
   startWork(s) {
     const t = s.task, w = this.world;
     if (!t) { s.state = 'seek'; return; }
+    if (t.job === 'scout') { this.reveal(t.x + 0.5, t.y + 0.5, 10); s.task = null; s.state = 'seek'; s.timer = 1.2; return; }   // umschauen
     const job = t.job === 'farm' ? t.farmTask : t.job;
     const valid = t.job === 'farm' ? true : this.validTarget(t.job, t.x, t.y, this.byId(s.job));
     if (!valid) { this.releaseTarget(s); s.state = 'seek'; return; }
@@ -760,6 +781,9 @@ export class Game {
             const tier = Math.min(3, b.level || 1);
             this.addBoat(tier); this.stats.boats++; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('boat');
             this.toast(this.boats === 1 ? 'Dein erstes Boot ist fertig. Jetzt geht es übers Wasser.' : tier === 3 ? 'Ein Kriegsschiff ist fertig.' : tier === 2 ? 'Ein Langboot ist fertig.' : 'Ein Boot ist fertig.');
+          } else if (r.out.ram) {
+            this.rams = (this.rams || 0) + 1; b.ramOrders = Math.max(0, (Number(b.ramOrders) || 0) - 1); this.sound('build');
+            this.toast('Ein Rammbock ist fertig. Schick ihn im Fenster eines Stammes los.');
           } else if (r.out.catapult) {
             this.catapults = (this.catapults || 0) + 1; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('build');
             this.toast('Ein Katapult ist fertig. Schick es im Fenster eines Stammes los.');
@@ -812,7 +836,10 @@ export class Game {
     return (this.carrierOk = this.settlers.some((o) => o.job == null && o.recruit == null && !(o.task && o.task.site != null)));
   }
   // Zutaten für so viele Durchgänge bringen Träger; Werft und Geschützbauer nur für offene Bestellungen
-  supplyBatches(b) { return b.type === 'shipyard' || b.type === 'siege' ? Math.min(2, Number(b.orders) || 0) : 2; }
+  supplyBatches(b) {
+    if (b.type === 'siege') return Math.min(2, Number(b.orders > 0 ? b.orders : b.ramOrders) || 0);
+    return b.type === 'shipyard' ? Math.min(2, Number(b.orders) || 0) : 2;
+  }
   outCount(b) { let n = 0; for (const k in b.out || {}) n += b.out[k] || 0; return n; }
   // Tür an einem gebauten Weg?
   roadLinked(b) {
@@ -854,7 +881,7 @@ export class Game {
     // Zutaten aus dem Lager in Werkstätten bringen (Vorrat für zwei Durchgänge)
     for (const b of this.buildings) {
       if (!b.built || BUILDINGS[b.type].job !== 'process' || b.paused || (b.haulBlocked || 0) > this.clock || this.haulBusy(b, 'supplyBy')) continue;
-      if ((b.type === 'shipyard' || b.type === 'siege') && !(b.orders > 0)) continue;
+      if ((b.type === 'shipyard' || b.type === 'siege') && !(b.orders > 0) && !(b.ramOrders > 0)) continue;
       const r = this.recipeOf(b), batches = this.supplyBatches(b);
       const item = Object.keys(r.in).find((k) => (b.in[k] || 0) < r.in[k] * batches && (this.stock[k] || 0) >= Math.max(1, r.in[k] - (b.in[k] || 0)));
       if (!item) continue;
@@ -1105,7 +1132,7 @@ export class Game {
       coins: this.coins, energy: this.energy, water: this.water, stock: this.stock, seedKind: this.seedKind, autoSell: this.autoSell,
       yearScore: this.yearScore, submitted: this.submitted, fed: this.fed, starving: this.starving, totals: this.totals, nextId: this.nextId,
       ground: enc(w.ground), wet: enc(w.wet), seen: enc(w.seen), seenCount: this.seenCount, objs, tr: enc(tr), pack: 1,
-      buildings: this.buildings.map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, built: b.built, progress: b.progress, in: b.in, out: b.out, fields: b.fields, paused: !!b.paused, level: b.level || 1, upgrading: b.upgrading || null, orders: b.orders || 0, training: b.training || null, tribe: b.tribe })),
+      buildings: this.buildings.map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, built: b.built, progress: b.progress, in: b.in, out: b.out, fields: b.fields, paused: !!b.paused, level: b.level || 1, upgrading: b.upgrading || null, orders: b.orders || 0, ramOrders: b.ramOrders || 0, training: b.training || null, tribe: b.tribe })),
       settlers: this.settlers.map((s) => ({ id: s.id, x: s.x, y: s.y, home: s.home, hat: s.hat })),
       player: { x: this.player.x, y: this.player.y },
       realm: this.saveRealm(),
