@@ -1,4 +1,4 @@
-"""Level generator + solver for the sliding puzzle "Rutschpartie".
+"""Level generator + solver for the sliding puzzle "Stone Cold" (früher Rutschpartie).
 
 Tiles: '#' rock, '.' ice, 'S' start, 'G' goal, '*' crystal, 'o' snow (stops you),
 'x' hole (fall), '~' thin ice (breaks after you leave it), '>' '<' '^' 'v' arrows (redirect).

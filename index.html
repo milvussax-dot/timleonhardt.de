@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <script>
-  // Alte Einladungslinks (timleonhardt.de/?room=…) und auf dem Homescreen installierte Apps landen weiter bei Gipfelrausch.
+  // Alte Einladungslinks (timleonhardt.de/?room=…) und auf dem Homescreen installierte Apps landen weiter bei Peak Rush.
   (function () {
     var q = location.search;
     var standalone = navigator.standalone || (window.matchMedia && (matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches));
-    if (/[?&]room=/.test(q) || standalone) location.replace('gipfelrausch/' + q + location.hash);
+    if (/[?&]room=/.test(q) || standalone) location.replace('peak-rush/' + q + location.hash);
   })();
 </script>
 <meta name="theme-color" content="#0b1022">
-<meta name="description" content="Browser-Spiele von timleonhardt.de: Gipfelrausch, eine 3D-Ski-Arcade, Umlauf, ein Spiel mit einer Taste, Rutschpartie, ein Rutsch-Puzzle mit 30 Leveln, und Dorfplan, ein Aufbau-Strategiespiel mit Tagesbestenliste.">
+<meta name="description" content="Browser-Spiele von timleonhardt.de: Peak Rush, eine 3D-Ski-Arcade, Spinward, ein Spiel mit einer Taste, Stone Cold, ein Rutsch-Puzzle mit 30 Leveln, und Plot Twist, ein Aufbau-Strategiespiel mit Tagesbestenliste.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Spiele · timleonhardt.de">
-<meta property="og:description" content="Gipfelrausch, Umlauf, Rutschpartie und Dorfplan, direkt im Browser spielen. Mit gemeinsamen Bestenlisten.">
+<meta property="og:description" content="Peak Rush, Spinward, Stone Cold und Plot Twist, direkt im Browser spielen. Mit gemeinsamen Bestenlisten.">
 <meta property="og:url" content="https://timleonhardt.de/">
 <title>Spiele · timleonhardt.de</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1022'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%23f2f5fc'/%3E%3Ccircle cx='8' cy='24' r='2.4' fill='%23ff5a36'/%3E%3Ccircle cx='24.5' cy='8' r='2.4' fill='%23ffc94d'/%3E%3C/svg%3E">
@@ -30,10 +30,10 @@
   --rule: rgba(214, 224, 255, 0.14);
   --ink: #f2f5fc;
   --muted: #9aa6c6;
-  --ski: #ff5a36;      /* Gipfelrausch accent */
-  --orbit: #ffc94d;    /* Umlauf accent */
-  --ice: #7fd4f5;      /* Rutschpartie accent */
-  --farm: #a5dc6e;     /* Dorfplan accent */
+  --ski: #ff5a36;      /* Peak Rush accent */
+  --orbit: #ffc94d;    /* Spinward accent */
+  --ice: #7fd4f5;      /* Stone Cold accent */
+  --farm: #a5dc6e;     /* Plot Twist accent */
   --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-ski: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
   --font-orbit: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -134,7 +134,7 @@ footer p { margin: 0; }
   </header>
 
   <main class="games">
-    <a class="tile ski" href="gipfelrausch/">
+    <a class="tile ski" href="peak-rush/">
       <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Verschneiter Hang mit orangefarbener Skispur">
         <defs>
           <linearGradient id="skiSky" x1="0" y1="0" x2="0" y2="1">
@@ -163,14 +163,14 @@ footer p { margin: 0; }
       </svg>
       <div class="body">
         <p class="kind">3D-Ski-Arcade</p>
-        <h2 class="name">Gipfelrausch</h2>
+        <h2 class="name">Peak Rush</h2>
         <p class="desc">Zeitfahren, Bot-Rennen, Slalom, Freestyle und Lawinen-Flucht auf fünf Karten. Online mit bis zu acht Leuten.</p>
         <ul class="facts"><li>6 Modi</li><li>Online-Rennen</li><li>Bestenliste pro Karte</li></ul>
         <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </a>
 
-    <a class="tile orbit" href="umlauf/">
+    <a class="tile orbit" href="spinward/">
       <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Kreisbahn mit weißem Punkt, goldenem Funken und roten Splittern">
         <defs>
           <radialGradient id="orbGlow" cx="0.5" cy="0.52" r="0.6">
@@ -202,13 +202,13 @@ footer p { margin: 0; }
       </svg>
       <div class="body">
         <p class="kind">Ein-Knopf-Spiel</p>
-        <h2 class="name">Umlauf.</h2>
+        <h2 class="name">Spinward.</h2>
         <p class="desc">Dein Punkt kreist ohne Pause auf der Bahn, Tippen dreht die Richtung. Sammle Funken und weich den Splittern aus.</p>
         <ul class="facts"><li>1 Taste</li><li>Bestenliste</li><li>Touch &amp; Tastatur</li></ul>
         <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </a>
-    <a class="tile ice" href="rutschpartie/">
+    <a class="tile ice" href="stone-cold/">
       <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Eisfläche mit Felsen, einem roten Curlingstein und dem Haus als Ziel">
         <defs>
           <linearGradient id="iceRink" x1="0" y1="0" x2="0" y2="1">
@@ -252,13 +252,13 @@ footer p { margin: 0; }
       </svg>
       <div class="body">
         <p class="kind">Rutsch-Puzzle</p>
-        <h2 class="name">Rutschpartie</h2>
+        <h2 class="name">Stone Cold</h2>
         <p class="desc">Dein Stein gleitet übers Eis, bis er anstößt. Bring ihn ins Haus, ohne einzubrechen.</p>
         <ul class="facts"><li>30 Level</li><li>Sterne-Bestenliste</li><li>Wischen &amp; Pfeiltasten</li></ul>
         <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </a>
-    <a class="tile farm" href="dorfplan/">
+    <a class="tile farm" href="plot-twist/">
       <svg class="art" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Dorfplan aus Feldern, Wäldern, Häusern, Teichen und einem Markt auf einem 6 mal 6 Raster">
         <rect width="320" height="200" fill="#1f3d2b"/>
         <rect x="74" y="12" width="172" height="176" rx="14" fill="#2a5039"/>
@@ -338,7 +338,7 @@ footer p { margin: 0; }
       </svg>
       <div class="body">
         <p class="kind">Aufbau-Strategie</p>
-        <h2 class="name">Dorfplan</h2>
+        <h2 class="name">Plot Twist</h2>
         <p class="desc">Kauf Bauteile vom Markt und plane dein Dorf auf 6×6 Feldern. Jeden Tag ein Tagesdorf mit denselben Teilen für alle.</p>
         <ul class="facts"><li>Tagesdorf</li><li>Tagesbestenliste</li><li>30 Züge</li></ul>
         <span class="play">Spielen <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>

@@ -1,10 +1,10 @@
-// Online-Bestenliste der Website (../lb.js auf timleonhardt.de, Listen "gipfelrausch:<boardKey>").
+// Online-Bestenliste der Website (../lb.js auf timleonhardt.de, Listen "peak-rush:<boardKey>").
 // Fehlt sie, etwa beim lokalen Start im Ordner Game, bleibt alles wie bisher lokal.
 const POINTS = new Set(['freestyle', 'lawine']);
 
 export const OnlineBoard = {
   get ok() { return !!(window.TLBoard && window.TLBoard.configured); },
-  id(key) { return 'gipfelrausch:' + key; },
+  id(key) { return 'peak-rush:' + key; },
   // Zeiten gehen als Millisekunden in die Liste, Punkte und Meter als ganze Zahlen
   toScore(mode, v) { return POINTS.has(mode) ? Math.round(v) : Math.round(v * 1000); },
   fromScore(mode, s) { return POINTS.has(mode) ? s : s / 1000; },

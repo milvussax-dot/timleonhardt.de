@@ -1,4 +1,4 @@
-# Gipfelrausch
+# Peak Rush
 
 3D-Ski-Arcade im Browser: Three.js, ohne Build-Schritt.
 
@@ -72,7 +72,7 @@ Online-Rennen laufen Peer-to-Peer über WebRTC (PeerJS). Einen eigenen Server br
 
 In manchen Netzen (strenge Firmen- oder Mobilfunk-NATs) kann die direkte Verbindung scheitern.
 
-**Live:** https://timleonhardt.de/gipfelrausch/ (Repo `milvussax-dot/timleonhardt.de`, Ordner `gipfelrausch/`). Beim Aktualisieren die Dateien nach `gipfelrausch/` kopieren, nicht ins Root des Repos: Dort liegt die Startseite mit der Spieleauswahl.
+**Live:** https://timleonhardt.de/peak-rush/ (Repo `milvussax-dot/timleonhardt.de`, Ordner `peak-rush/`; früher hieß das Spiel Gipfelrausch). Beim Aktualisieren die Dateien nach `peak-rush/` kopieren, nicht ins Root des Repos: Dort liegt die Startseite mit der Spieleauswahl.
 
 ## Dateien
 

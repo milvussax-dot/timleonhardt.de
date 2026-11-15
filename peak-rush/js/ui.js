@@ -125,7 +125,7 @@ export class UI {
       <div class="menu-wrap">
         <div class="brand">
           <div class="eyebrow">Ski-Arcade · Saison 2026</div>
-          <h1 class="logo"><span>Gipfel</span><span>rausch</span></h1>
+          <h1 class="logo"><span>Peak</span><span>Rush</span></h1>
           <p class="tag">${name ? `Servus, <b>${esc(name)}</b>. ` : ''}Fünf Modi, fünf Wetterlagen und Online-Rennen gegen Freunde.</p>
         </div>
         <nav class="menu-list">

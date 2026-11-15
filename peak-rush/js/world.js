@@ -290,7 +290,7 @@ function bannerMat(text, bg, fg) {
   x.font = 'italic 800 84px "Barlow Condensed", sans-serif';
   x.textAlign = 'center';
   x.textBaseline = 'middle';
-  x.fillText(`${text}  ·  GIPFELRAUSCH  ·  ${text}`, 512, 68);
+  x.fillText(`${text}  ·  PEAK RUSH  ·  ${text}`, 512, 68);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;

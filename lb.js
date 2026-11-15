@@ -25,7 +25,7 @@
     if (pid) return pid;
     var id = sget('tl.player', '');
     if (typeof id !== 'string' || !UUID.test(id)) {
-      // ältere Umlauf-ID übernehmen, damit vorhandene Einträge dem Gerät zugeordnet bleiben
+      // ältere ID aus Spinward (früher Umlauf) übernehmen, damit vorhandene Einträge dem Gerät zugeordnet bleiben
       var legacy = sget('umlauf.player', '');
       if (typeof legacy === 'string' && UUID.test(legacy)) id = legacy;
       else if (window.crypto && crypto.randomUUID) id = crypto.randomUUID();

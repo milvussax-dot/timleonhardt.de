@@ -1,11 +1,11 @@
 -- Gemeinsame Bestenlisten für alle Spiele auf timleonhardt.de
 -- Einmal im Supabase SQL Editor ausführen (New query → einfügen → Run). Erneutes Ausführen schadet nicht.
 --
--- Jede Liste heißt "board" (z. B. "umlauf", "dorfplan:tag:2026-11-15", "gipfelrausch:race3:edelweiss").
+-- Jede Liste heißt "board" (z. B. "spinward", "plot-twist:day:2026-11-15", "peak-rush:race3:edelweiss").
 -- Pro Liste und Gerät gibt es einen Eintrag, der nur besser werden kann. Geräte-IDs verlassen die Datenbank nie.
 
 -- Welche Listen es gibt, ob mehr oder weniger besser ist und welche Werte erlaubt sind.
--- Ein Eintrag gilt für die Liste selbst und alle Listen darunter ("dorfplan:tag" gilt für "dorfplan:tag:2026-11-15").
+-- Ein Eintrag gilt für die Liste selbst und alle Listen darunter ("plot-twist:day" gilt für "plot-twist:day:2026-11-15").
 create table if not exists public.lb_boards (
   prefix        text primary key,
   higher_better boolean not null,
@@ -30,14 +30,14 @@ alter table public.lb_scores enable row level security;
 revoke all on table public.lb_boards, public.lb_scores from anon, authenticated;
 
 insert into public.lb_boards (prefix, higher_better, min_score, max_score) values
-  ('umlauf',                  true,  1,    5000),      -- Funken
-  ('rutschpartie',            true,  1,    90),        -- Sterne, tiebreak = Züge über Ideal
-  ('dorfplan',                true,  1,    1000),      -- Punkte, beste Tagespartie aller Zeiten
-  ('dorfplan:tag',            true,  1,    1000),      -- Punkte pro Tag
-  ('gipfelrausch:race3',      false, 5000, 1800000),   -- Millisekunden
-  ('gipfelrausch:slalom3',    false, 5000, 1800000),   -- Millisekunden
-  ('gipfelrausch:freestyle3', true,  1,    10000000),  -- Punkte
-  ('gipfelrausch:lawine',     true,  1,    1000000)    -- Meter
+  ('spinward',                true,  1,    5000),      -- Funken
+  ('stone-cold',              true,  1,    90),        -- Sterne, tiebreak = Züge über Ideal
+  ('plot-twist',              true,  1,    1000),      -- Punkte, beste Tagespartie aller Zeiten
+  ('plot-twist:day',          true,  1,    1000),      -- Punkte pro Tag
+  ('peak-rush:race3',         false, 5000, 1800000),   -- Millisekunden
+  ('peak-rush:slalom3',       false, 5000, 1800000),   -- Millisekunden
+  ('peak-rush:freestyle3',    true,  1,    10000000),  -- Punkte
+  ('peak-rush:lawine',        true,  1,    1000000)    -- Meter
 on conflict (prefix) do update
   set higher_better = excluded.higher_better, min_score = excluded.min_score, max_score = excluded.max_score;
 

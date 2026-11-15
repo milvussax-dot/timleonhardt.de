@@ -4,17 +4,18 @@ Statische Spiele-Seite auf GitHub Pages (Branch `main`, Root-Ordner).
 
 | Pfad | Inhalt |
 |---|---|
-| `index.html` | Startseite mit der Spieleauswahl. Leitet alte Einladungslinks (`/?room=…`) und Homescreen-Apps zu Gipfelrausch weiter. |
-| `gipfelrausch/` | 3D-Ski-Arcade, Quelle liegt lokal im Ordner `Desktop/Game`. Details in `gipfelrausch/README.md`. |
-| `umlauf/` | Ein-Knopf-Spiel mit Bestenliste. |
-| `rutschpartie/` | Rutsch-Puzzle mit 30 Leveln, eine Datei. Die Level stammen aus `rutschpartie/tools/levelgen.py` (Generator und Löser mit denselben Regeln wie das Spiel). |
-| `dorfplan/` | Aufbau-Strategie mit Tagesdorf (gleiche Teile für alle pro Tag), eine Datei. |
+| `index.html` | Startseite mit der Spieleauswahl. Leitet alte Einladungslinks (`/?room=…`) und Homescreen-Apps zu Peak Rush weiter. |
+| `peak-rush/` | **Peak Rush**, 3D-Ski-Arcade (früher Gipfelrausch). Quelle liegt lokal im Ordner `Desktop/Game`. Details in `peak-rush/README.md`. |
+| `spinward/` | **Spinward**, Ein-Knopf-Spiel (früher Umlauf). |
+| `stone-cold/` | **Stone Cold**, Rutsch-Puzzle mit 30 Leveln (früher Rutschpartie), eine Datei. Die Level stammen aus `stone-cold/tools/levelgen.py` (Generator und Löser mit denselben Regeln wie das Spiel). |
+| `plot-twist/` | **Plot Twist**, Aufbau-Strategie mit Tagesdorf (früher Dorfplan), eine Datei. |
+| `gipfelrausch/`, `umlauf/`, `rutschpartie/`, `dorfplan/` | Nur Weiterleitungen auf die neuen Adressen, damit alte Links und Einladungen funktionieren. |
 | `lb.js`, `lb-config.js` | Gemeinsame Online-Bestenliste für alle Spiele (Supabase). Setup: `leaderboard-setup.sql`. |
 | `CNAME`, `.nojekyll` | Domain und Pages-Einstellung, nicht löschen. |
 
-## Gipfelrausch aktualisieren
+## Peak Rush aktualisieren
 
-Die Dateien des Spiels nach `gipfelrausch/` kopieren, **nicht** ins Root: dort liegt die Startseite.
+Die Dateien des Spiels nach `peak-rush/` kopieren, **nicht** ins Root (dort liegt die Startseite) und nicht nach `gipfelrausch/` (dort liegt nur die Weiterleitung).
 
 ## Bestenlisten
 
@@ -22,8 +23,8 @@ Alle Spiele nutzen `lb.js` mit den Werten aus `lb-config.js` (Supabase Project U
 
 | Liste | Wert |
 |---|---|
-| `umlauf` | Funken |
-| `rutschpartie` | Sterne, bei Gleichstand weniger Züge über Ideal |
-| `dorfplan:tag:JJJJ-MM-TT`, `dorfplan` | Punkte im Tagesdorf, pro Tag und für alle Zeiten |
-| `gipfelrausch:race3:<karte>`, `gipfelrausch:slalom3:<karte>` | Zeit in Millisekunden, weniger ist besser |
-| `gipfelrausch:freestyle3:<park>`, `gipfelrausch:lawine` | Punkte bzw. Meter |
+| `spinward` | Funken |
+| `stone-cold` | Sterne, bei Gleichstand weniger Züge über Ideal |
+| `plot-twist:day:JJJJ-MM-TT`, `plot-twist` | Punkte im Tagesdorf, pro Tag und für alle Zeiten |
+| `peak-rush:race3:<karte>`, `peak-rush:slalom3:<karte>` | Zeit in Millisekunden, weniger ist besser |
+| `peak-rush:freestyle3:<park>`, `peak-rush:lawine` | Punkte bzw. Meter |
