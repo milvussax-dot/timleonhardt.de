@@ -3,10 +3,10 @@
 import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
-  HOUSE_LEVELS, UPGRADE,
-} from './data.js?v=14';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=14';
-import { Realm } from './realm.js?v=14';
+  HOUSE_LEVELS, UPGRADE, CARRY_MAX, CARRIER_ROAD, OUT_MAX,
+} from './data.js?v=16';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=16';
+import { Realm } from './realm.js?v=16';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
@@ -364,6 +364,7 @@ export class Game {
     this.settlers = this.settlers.filter((o) => o !== s);
   }
   resetSettler(s) {
+    this.endHaul(s);
     if (s.target != null) this.reserved.delete(s.target);
     if (s.carry) { this.add(s.carry.item, s.carry.n); s.carry = null; }
     if (s.job != null) { const b = this.byId(s.job); if (b && b.worker === s.id) b.worker = null; }
@@ -391,7 +392,7 @@ export class Game {
       }
       const tx = n.x + 0.5, ty = n.y + 0.5, dx = tx - e.x, dy = ty - e.y, len = Math.hypot(dx, dy);
       const g = this.world.g(Math.floor(e.x), Math.floor(e.y));
-      const bonus = g === G.PATH || g === G.BRIDGE ? PATH_BONUS : 1, step = dist * bonus;
+      const bonus = g === G.PATH || g === G.BRIDGE ? PATH_BONUS * (e.haul ? CARRIER_ROAD : 1) : 1, step = dist * bonus;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) e.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0);
       if (len <= step) { e.x = tx; e.y = ty; dist -= len / bonus; e.pi++; if (e.pi >= e.path.length) { e.path = null; return true; } }
       else { e.x += dx / len * step; e.y += dy / len * step; dist = 0; }
@@ -478,6 +479,14 @@ export class Game {
     if (s.job != null && !this.byId(s.job)) this.resetSettler(s);
     if (s.state === 'atTarget') return this.startWork(s);
     if (s.state === 'working' && !s.work) s.state = 'seek';
+    if (s.state === 'haulPick' || s.state === 'haulFetch' || s.state === 'haulDrop') return this.haulArrive(s);
+    if (s.state === 'stash') {   // Ware am eigenen Gebäude ablegen, ein Träger bringt sie ins Lager
+      const b = s.job != null ? this.byId(s.job) : null;
+      if (!b || !s.carry) { s.state = s.carry ? 'deliver' : 'seek'; return; }
+      if (nextToRect(b.x, b.y, b.w, b.h)(Math.floor(s.x), Math.floor(s.y))) { b.out[s.carry.item] = (b.out[s.carry.item] || 0) + s.carry.n; s.carry = null; s.state = 'seek'; return; }
+      if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'stash')) s.state = 'deliver';
+      return;
+    }
     if (s.state === 'deliver') {   // Ware ins Lager bringen
       const st = this.nearestStorage(s.x, s.y);
       if (!st) { s.timer = 2; return; }
@@ -486,6 +495,7 @@ export class Game {
     }
     if (s.state === 'drop') {
       if (s.carry) { this.add(s.carry.item, s.carry.n, s.carry.kind || 'gathered'); this.floatText(s.x, s.y - 0.6, `+${s.carry.n} ${ITEMS[s.carry.item].name}`, ITEMS[s.carry.item].color); s.carry = null; }
+      this.endHaul(s);
       s.state = s.job != null ? 'seek' : 'idle';
       return;
     }
@@ -530,7 +540,9 @@ export class Game {
       if (d < bd) { bd = d; best = b; }
     }
     if (best) { best.worker = s.id; s.job = best.id; s.state = 'seek'; return; }
-    // 3. herumschlendern
+    // 3. als Träger Waren abholen oder Zutaten bringen
+    if (this.thinkCarry(s)) return;
+    // 4. herumschlendern
     const home = s.home != null ? this.byId(s.home) : this.buildings[0];
     const base = home ? this.door(home) : { x: Math.floor(s.x), y: Math.floor(s.y) };
     const tx = base.x + Math.floor(this.rng() * 7) - 3, ty = base.y + Math.floor(this.rng() * 4);
@@ -658,10 +670,11 @@ export class Game {
     const r = this.recipeOf(b), w = this.world;
     if (s.state === 'working') return;
     if (b.type === 'shipyard' && !(b.orders > 0) && !s.carry) return this.waitAtDoor(s, b, 'Kein Boot bestellt. Bestell eins hier im Menü der Werft.');
+    if (b.type === 'siege' && !(b.orders > 0) && !s.carry) return this.waitAtDoor(s, b, 'Kein Katapult bestellt. Bestell eins hier im Menü.');
     const atB = nextToRect(b.x, b.y, b.w, b.h)(Math.floor(s.x), Math.floor(s.y));
     // Fertige Ware wegbringen
     const outItem = Object.keys(r.out)[0];
-    if ((b.out[outItem] || 0) > 0 && !s.carry) {
+    if ((b.out[outItem] || 0) > 0 && !s.carry && (!this.carriersOn() || b.out[outItem] >= OUT_MAX)) {
       if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) this.unstick(s, b); return; }
       s.carry = { item: outItem, n: b.out[outItem], kind: 'produced' }; b.out[outItem] = 0;
       s.state = 'deliver';
@@ -675,6 +688,7 @@ export class Game {
     }
     const hasIn = Object.keys(r.in).every((k) => (b.in[k] || 0) >= r.in[k]);
     if (hasIn) {
+      b.waitIn = null;
       if (!atB) { if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'seek')) this.unstick(s, b); return; }
       s.why = '';
       s.state = 'working'; s.work = { type: 'process', b: b.id }; s.timer = r.time / this.speedOf(b); b.anim = b.anim || 0;
@@ -691,6 +705,12 @@ export class Game {
       s.state = 'seek'; s.timer = 3; return;
     }
     if ((this.stock[item] || 0) >= need[item]) {
+      // gibt es Träger, bringen die es; kommt 15 s lang keiner, holt er es selbst
+      if (this.carriersOn() && s.state !== 'fetched') {
+        if (b.waitIn == null) b.waitIn = this.clock;
+        if (this.clock - b.waitIn < 15) return this.waitAtDoor(s, b, `Wartet auf einen Träger mit ${ITEMS[item].name}.`, 1);
+      }
+      b.waitIn = null;
       const st = this.nearestStorage(s.x, s.y);
       if (st && this.goTo(s, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 'fetched')) return;
     }
@@ -740,6 +760,9 @@ export class Game {
             const tier = Math.min(3, b.level || 1);
             this.addBoat(tier); this.stats.boats++; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('boat');
             this.toast(this.boats === 1 ? 'Dein erstes Boot ist fertig. Jetzt geht es übers Wasser.' : tier === 3 ? 'Ein Kriegsschiff ist fertig.' : tier === 2 ? 'Ein Langboot ist fertig.' : 'Ein Boot ist fertig.');
+          } else if (r.out.catapult) {
+            this.catapults = (this.catapults || 0) + 1; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('build');
+            this.toast('Ein Katapult ist fertig. Schick es im Fenster eines Stammes los.');
           } else for (const k in r.out) b.out[k] = (b.out[k] || 0) + r.out[k];
           if (r.out.bread) this.stats.bread += r.out.bread;
           if (r.out.iron) this.stats.iron += r.out.iron;
@@ -775,6 +798,99 @@ export class Game {
       s.carry = { item, n, kind: 'harvested' };
       s.state = 'deliver';
     }
+    if (s.state === 'deliver' && s.carry && s.job != null && this.carriersOn()) {
+      const b = this.byId(s.job);
+      if (b && this.outCount(b) < OUT_MAX) s.state = 'stash';
+    }
+  }
+
+  /* ---------- Träger ---------- */
+  // Siedler ohne Arbeit, Baustelle oder Ausbildung tragen Waren. Gibt es gerade welche?
+  carriersOn() {
+    if (this.carrierT === this.clock) return this.carrierOk;
+    this.carrierT = this.clock;
+    return (this.carrierOk = this.settlers.some((o) => o.job == null && o.recruit == null && !(o.task && o.task.site != null)));
+  }
+  // Zutaten für so viele Durchgänge bringen Träger; Werft und Geschützbauer nur für offene Bestellungen
+  supplyBatches(b) { return b.type === 'shipyard' || b.type === 'siege' ? Math.min(2, Number(b.orders) || 0) : 2; }
+  outCount(b) { let n = 0; for (const k in b.out || {}) n += b.out[k] || 0; return n; }
+  // Tür an einem gebauten Weg?
+  roadLinked(b) {
+    const d = this.door(b), w = this.world;
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = d.x + dx, y = d.y + dy; if (w.inb(x, y) && w.ground[w.i(x, y)] === G.PATH) return true; }
+    return false;
+  }
+  // ist der vermerkte Träger noch für dieses Gebäude unterwegs?
+  haulBusy(b, key) {
+    const id = b[key];
+    if (id == null) return false;
+    const s = this.settlers.find((o) => o.id === id);
+    if (s && s.haul && s.haul.b === b.id) return true;
+    b[key] = null;
+    return false;
+  }
+  endHaul(s) {
+    const h = s.haul;
+    s.haul = null;
+    if (!h || h.b == null) return;
+    const b = this.byId(h.b);
+    if (b) { if (b.pickBy === s.id) b.pickBy = null; if (b.supplyBy === s.id) b.supplyBy = null; }
+  }
+  thinkCarry(s) {
+    if (!this.nearestStorage(s.x, s.y)) return false;
+    // fertige Ware abholen: volle Gebäude zuerst, nahe bevorzugt
+    let best = null, bv = -Infinity;
+    for (const b of this.buildings) {
+      if (!b.built || b.type === 'storage' || (b.haulBlocked || 0) > this.clock) continue;
+      const n = this.outCount(b);
+      if (!n || this.haulBusy(b, 'pickBy')) continue;
+      const v = Math.min(n, CARRY_MAX) * 8 - (Math.abs(b.x - s.x) + Math.abs(b.y - s.y));
+      if (v > bv) { bv = v; best = b; }
+    }
+    if (best) {
+      if (this.goTo(s, nextToRect(best.x, best.y, best.w, best.h), best.x + 1, best.y + 1, 'haulPick')) { best.pickBy = s.id; s.haul = { kind: 'pick', b: best.id }; return true; }
+      best.haulBlocked = this.clock + 15;
+    }
+    // Zutaten aus dem Lager in Werkstätten bringen (Vorrat für zwei Durchgänge)
+    for (const b of this.buildings) {
+      if (!b.built || BUILDINGS[b.type].job !== 'process' || b.paused || (b.haulBlocked || 0) > this.clock || this.haulBusy(b, 'supplyBy')) continue;
+      if ((b.type === 'shipyard' || b.type === 'siege') && !(b.orders > 0)) continue;
+      const r = this.recipeOf(b), batches = this.supplyBatches(b);
+      const item = Object.keys(r.in).find((k) => (b.in[k] || 0) < r.in[k] * batches && (this.stock[k] || 0) >= Math.max(1, r.in[k] - (b.in[k] || 0)));
+      if (!item) continue;
+      const st = this.nearestStorage(b.x, b.y);
+      if (st && this.goTo(s, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 'haulFetch')) { b.supplyBy = s.id; s.haul = { kind: 'supply', b: b.id, item }; return true; }
+      b.haulBlocked = this.clock + 15;
+    }
+    return false;
+  }
+  // Träger ist angekommen: am Gebäude (abholen oder abliefern) oder am Lager (Zutaten holen)
+  haulArrive(s) {
+    const h = s.haul, b = h && h.b != null ? this.byId(h.b) : null;
+    if (!b) { this.endHaul(s); s.state = s.carry ? 'deliver' : 'idle'; return; }
+    if (s.state === 'haulPick') {
+      let item = null, n = 0;
+      for (const k in b.out) if ((b.out[k] || 0) > n) { n = b.out[k]; item = k; }
+      this.endHaul(s);
+      if (!item) { s.state = 'idle'; return; }
+      const take = Math.min(n, CARRY_MAX), job = BUILDINGS[b.type].job;
+      b.out[item] -= take;
+      s.carry = { item, n: take, kind: job === 'process' ? 'produced' : job === 'farm' ? 'harvested' : 'gathered' };
+      s.haul = { kind: 'deliver' };
+      s.state = 'deliver';
+      return;
+    }
+    if (s.state === 'haulFetch') {
+      const r = this.recipeOf(b), have = b.in[h.item] || 0;
+      const n = Math.min(this.stock[h.item] || 0, Math.max(CARRY_MAX, r.in[h.item]), r.in[h.item] * this.supplyBatches(b) - have);
+      if (n <= 0) { this.endHaul(s); s.state = 'idle'; return; }
+      this.stock[h.item] -= n; s.carry = { item: h.item, n };
+      if (!this.goTo(s, nextToRect(b.x, b.y, b.w, b.h), b.x + 1, b.y + 1, 'haulDrop')) { this.stock[h.item] += n; s.carry = null; b.haulBlocked = this.clock + 15; this.endHaul(s); s.state = 'idle'; }
+      return;
+    }
+    if (s.carry) { b.in[s.carry.item] = (b.in[s.carry.item] || 0) + s.carry.n; s.carry = null; }
+    this.endHaul(s);
+    s.state = 'idle';
   }
 
   /* ---------- Spieler ---------- */
@@ -844,7 +960,7 @@ export class Game {
     const a = { type: act, x: tx, y: ty };
     const px = Math.floor(p.x), py = Math.floor(p.y);
     if (Math.max(Math.abs(px - tx), Math.abs(py - ty)) === 1) { this.beginAction(a); return null; }
-    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 150000, this.passFor(p));
+    const path = findPath(w, px, py, nextTo(tx, ty), tx, ty, 300000, this.passFor(p));
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.dest = { goal: nextTo(tx, ty), hx: tx, hy: ty };
     if (!p.path) this.beginAction(a); else p.pending = a;
@@ -866,7 +982,7 @@ export class Game {
   walkTo(tx, ty) {
     const p = this.player, w = this.world, pass = this.passFor(p);
     const goal = (pass ? pass(tx, ty) : w.walkable(tx, ty)) ? (x, y) => x === tx && y === ty : nextTo(tx, ty);
-    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 150000, pass);
+    const path = findPath(w, Math.floor(p.x), Math.floor(p.y), goal, tx, ty, 300000, pass);
     if (!path) return { msg: this.boats > 0 ? 'Da kommst du nicht hin.' : 'Da kommst du nicht hin. Mit einem Boot kämst du übers Wasser.' };
     p.path = path.length ? path : null; p.pi = 0; p.pending = null; p.dest = { goal, hx: tx, hy: ty };
     return null;

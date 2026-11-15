@@ -1,5 +1,5 @@
 // Karte: Zufall, Rauschen, Generator, Begehbarkeit und Wegsuche
-import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=14';
+import { MAP_W, MAP_H, G, BLOCK_GROUND, BLOCK_OBJ, FREE_GROUND } from './data.js?v=16';
 
 export function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 export function mulberry(a) {
@@ -208,8 +208,8 @@ export function generate(seedStr, attempt = 0) {
   };
   sprinkle(7, 7, 13, () => ({ t: 'rock', size: 2 }));
   sprinkle(4, 6, 12, () => ({ t: 'bush', berries: true, regrow: 0 }));
-  // Lagerplätze fremder Stämme: acht an Land, einer auf der Insel, dazu Trampelpfade ins Tal
-  const sites = pickTribeSites(w, start, rnd, W * H > 40000 ? 8 : 5);
+  // Lagerplätze fremder Stämme: bis zu zwölf an Land, einer auf der Insel, dazu Trampelpfade ins Tal
+  const sites = pickTribeSites(w, start, rnd, W * H > 120000 ? 12 : W * H > 40000 ? 8 : 5);
   carveTrails(w, start, sites);
   if (island) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = island.x + dx, y = island.y + dy; if (w.inb(x, y) && !w.isWater(x, y)) w.obj[w.i(x, y)] = null; }
@@ -320,10 +320,11 @@ export function pickTribeSites(w, start, rnd, n, avoid = []) {
   };
   const minStart = Math.min(70, Math.max(26, Math.round((w.w + w.h) * 0.2)));
   const reach = flood(w, start.x, start.y, terrainPass(w)).mark;
-  for (let t = 0; t < 3000 && sites.length < n; t++) {
+  const apart = w.w * w.h > 120000 ? 34 : 24;   // Abstand der Lager untereinander
+  for (let t = 0; t < 6000 && sites.length < n; t++) {
     const x = 6 + Math.floor(rnd() * (w.w - 12)), y = 6 + Math.floor(rnd() * (w.h - 12));
     if (Math.abs(x - start.x) + Math.abs(y - start.y) < minStart) continue;
-    if (sites.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 24)) continue;
+    if (sites.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < apart)) continue;
     if (avoid.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 16)) continue;
     if (!okArea(x, y)) continue;
     if (!reach[y * w.w + x]) continue;

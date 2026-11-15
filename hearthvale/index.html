@@ -73,7 +73,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* oben rechts */
 .topright { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-#mini { width: 180px; height: 144px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.18); display: block; background: #111; image-rendering: pixelated; }
+#mini { width: 180px; height: 144px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.18); display: block; background: #111; image-rendering: pixelated; cursor: pointer; touch-action: none; }
+.backbtn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; font-weight: 800; font-size: 13px; }
+.backbtn:hover { border-color: rgba(255,255,255,0.35); }
+.backbtn svg { width: 15px; height: 15px; }
 .btnrow { display: flex; gap: 6px; }
 .ibtn { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--glass); border: 1px solid var(--line); font-weight: 800; font-size: 17px; }
 .ibtn:hover { border-color: rgba(255,255,255,0.35); }
@@ -243,6 +246,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <button class="ibtn" id="soundBtn" type="button" aria-label="Ton aus"></button>
     <button class="ibtn" id="menuBtn" type="button" aria-label="Menü">≡</button>
   </div>
+  <button class="glass backbtn" id="backBtn" type="button" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Zurück zu dir</button>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -267,6 +271,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 <script src="../lb-config.js"></script>
 <script src="../lb.js"></script>
-<script type="module" src="js/main.js?v=14"></script>
+<script type="module" src="js/main.js?v=16"></script>
 </body>
 </html>

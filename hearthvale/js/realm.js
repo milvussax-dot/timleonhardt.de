@@ -1,7 +1,7 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=14';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=14';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=16';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=16';
 
 export const CAMP_R = 8;        // so weit reicht das Land eines Stammes
 export const FIRST_RAID = 10;   // vorher greift niemand an
@@ -13,6 +13,7 @@ const BALANCE = 2;              // Stand der Spielbalance; ältere Spielstände 
 const HUT_SPOTS = [[-5, -3], [4, -3], [-5, 2], [4, 2], [-1, -5], [-8, -1], [7, -1], [-4, 5], [3, 5], [-4, -7], [3, -7]];
 const ISLAND_HUT_SPOTS = [[-4, -1], [3, -1], [-1, -4], [-4, 1], [3, 1]];
 const ALARM_R = 10;             // kommen Soldaten so nah, verteidigt sich das Lager
+const CONTACT_R = 5;            // treffen Truppen so nah aufeinander, kämpfen sie (Bogenschützen: Schussweite)
 const REACH = 0.95, HIT_CD = 0.9;
 const RANKS = [2, 5, 9];        // Siege bis zum nächsten Rang
 const COMPASS = ['Osten', 'Südosten', 'Süden', 'Südwesten', 'Westen', 'Nordwesten', 'Norden', 'Nordosten'];
@@ -43,7 +44,7 @@ export const QUEST_TEST = {
 export const Realm = {
   /* ---------- Einrichtung ---------- */
   setupRealm(sites) {
-    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 };
+    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 }; this.catapults = 0;
     if (this.seenCount == null) this.seenCount = 0;
     const rnd = mulberry(hash(this.seed + ':stämme'));
     const pool = TRIBES.filter((t) => t.key !== 'nebelfischer');
@@ -140,7 +141,7 @@ export const Realm = {
   },
   // flüchtiger Zustand nach Start und Laden
   initRealm() {
-    this.foes = []; this.ships = []; this.shots = [];
+    this.foes = []; this.ships = []; this.shots = []; this.sieges = [];
     this.realmT = 0; this.garT = 1; this.questT = 1;
     this.fogVer = (this.fogVer || 0) + 1;
     for (const t of this.tribes) t.raid = null;
@@ -153,6 +154,8 @@ export const Realm = {
     for (const s of this.soldiers.slice()) if (this.soldiers.includes(s)) this.updateSoldier(s, dt);
     for (const f of this.foes.slice()) if (this.foes.includes(f)) this.updateFoe(f, dt);
     this.updateShips(dt);
+    this.updateSieges(dt);
+    this.updateTowers(dt);
     this.updateShots(dt);
     if ((this.realmT -= dt) <= 0) { this.realmT = 0.5; this.updateVision(); }
     if ((this.garT -= dt) <= 0) { this.garT = 2; this.assignGarrisons(); }
@@ -263,6 +266,13 @@ export const Realm = {
       const nx = BARRACKS_LEVELS[lvl + 1], cur = BARRACKS_LEVELS[lvl];
       return nx ? { name: nx.name, cost: nx.cost, build: nx.build, text: `Alle Soldaten dieser Kaserne bekommen +${nx.hp - cur.hp} Leben und schlagen härter zu, Platz für ${nx.cap}. Jede Ausbildung kostet dann zusätzlich ${costText(nx.extra)}` } : null;
     }
+    if (b.type === 'tower') {
+      const nx = TOWER_LEVELS[lvl + 1];
+      if (!nx) return null;
+      const de = (n) => String(n).replace('.', ',');
+      const text = lvl < 2 ? `schießt selbst auf Krieger bis ${de(nx.range)} Felder weit, auch ohne Wache (Schaden ${de(nx.atk)} alle ${de(nx.cd)} s)` : `schießt weiter, härter und schneller: ${de(nx.range)} Felder, Schaden ${de(nx.atk)} alle ${de(nx.cd)} s`;
+      return { name: nx.name, cost: nx.cost, build: nx.build, text };
+    }
     if (b.type === 'shipyard') {
       const nx = SHIPYARD_LEVELS[lvl + 1];
       return nx ? { name: nx.name, cost: nx.cost, build: nx.build, text: `baut ${nx.boats} mit ${nx.seats} Plätzen${nx.armed ? ' und Wurfgeschütz, das bei Angriffen von der Küste aus mitschießt' : ''}. Ein Boot kostet dann ${costText(nx.recipe.in)}` } : null;
@@ -291,6 +301,7 @@ export const Realm = {
       for (const s of this.soldiers) if (s.home === b.id && (s.drill || 1) < b.level) { const before = this.maxHp(s); s.drill = b.level; s.hp += this.maxHp(s) - before; }
       this.toast(`Ausgebaut: jetzt eine ${BARRACKS_LEVELS[b.level].name}. Ihre Soldaten sind stärker.`);
     } else if (b.type === 'shipyard') this.toast(`Ausgebaut: Die Werft baut jetzt ${SHIPYARD_LEVELS[b.level].boats}.`);
+    else if (b.type === 'tower') this.toast(`Ausgebaut: jetzt ein ${TOWER_LEVELS[b.level].name}. Er schießt selbst auf Krieger in der Nähe.`);
     else if (b.type === 'house') this.toast(`Ausgebaut: jetzt ein ${HOUSE_LEVELS[b.level].name}.`);
     else this.toast(`Ausgebaut: ${BUILDINGS[b.type].name}, Stufe ${b.level}.`);
     this.landDirty = true;
@@ -300,6 +311,7 @@ export const Realm = {
     if (b.type === 'house') return HOUSE_LEVELS[lvl].name;
     if (b.type === 'barracks') return BARRACKS_LEVELS[lvl].name;
     if (b.type === 'shipyard') return SHIPYARD_LEVELS[lvl].name;
+    if (b.type === 'tower') return TOWER_LEVELS[Math.min(3, lvl)].name;
     return lvl >= 2 ? `${BUILDINGS[b.type].name} · Stufe ${lvl}` : BUILDINGS[b.type].name;
   },
   // alle bezahlten Ausbaukosten (für den Talwert)
@@ -309,13 +321,32 @@ export const Realm = {
       if (b.type === 'house') out.push(HOUSE_LEVELS[l].cost);
       else if (b.type === 'barracks') out.push(BARRACKS_LEVELS[l].cost);
       else if (b.type === 'shipyard') out.push(SHIPYARD_LEVELS[l].cost);
+      else if (b.type === 'tower') out.push(TOWER_LEVELS[l].cost);
       else out.push(UPGRADE.cost);
     }
     return out;
   },
   recipeOf(b) { return b.type === 'shipyard' ? SHIPYARD_LEVELS[Math.min(3, b.level || 1)].recipe : BUILDINGS[b.type].recipe; },
   speedOf(b) { return b && b.type !== 'house' && b.type !== 'shipyard' && (b.level || 1) >= 2 ? UPGRADE.speed : 1; },
-  radiusOf(b) { const def = BUILDINGS[b.type]; return (def.radius || 0) + (def.job && def.job !== 'farm' && (b.level || 1) >= 2 ? UPGRADE.radius : 0); },
+  radiusOf(b) {
+    if (b.type === 'tower') return (b.level || 1) >= 2 ? TOWER_LEVELS[Math.min(3, b.level)].range : 0;   // Schussweite
+    const def = BUILDINGS[b.type]; return (def.radius || 0) + (def.job && def.job !== 'farm' && (b.level || 1) >= 2 ? UPGRADE.radius : 0);
+  },
+  // ausgebaute Wachtürme schießen selbst auf den nächsten Krieger in Reichweite
+  updateTowers(dt) {
+    for (const b of this.buildings) {
+      if (b.type !== 'tower' || !b.built || (b.level || 1) < 2) continue;
+      if (b.swing > 0) b.swing -= dt;
+      if ((b.cd = (b.cd || 0) - dt) > 0) continue;
+      const L = TOWER_LEVELS[Math.min(3, b.level)], cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      const f = this.nearestFoe(cx, cy, L.range);
+      if (!f) { b.cd = 0.3; continue; }
+      b.cd = L.cd * (0.9 + this.rng() * 0.2);
+      this.shoot({ kind: 'tower', atk: L.atk, x: cx, y: cy }, f, { x: cx, y: b.y - 0.9 });
+      if (b.level >= 3) this.shots[this.shots.length - 1].kind = 'bolt';
+      b.swing = 0.3;
+    }
+  },
   fieldsOf(b) { return (b.level || 1) >= 2 ? UPGRADE.fields : BUILDINGS.farm.fields; },
   bedsOf(b) { return HOUSE_LEVELS[Math.min(HOUSE_LEVELS.length - 1, b.level || 1)].beds; },
 
@@ -375,7 +406,8 @@ export const Realm = {
       const ready = want.find((k) => this.has(this.trainCost(b, k)));
       if (!ready) { b.why = this.trainWhy(b, want[0]); continue; }
       if (this.settlers.some((s) => s.recruit === b.id)) { b.why = 'Ein Siedler ist auf dem Weg zur Ausbildung.'; continue; }
-      let free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !(s.task && s.task.site != null));
+      let free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !s.haul && !(s.task && s.task.site != null));
+      if (!free.length) free = this.settlers.filter((s) => s.job == null && s.recruit == null && !s.carry && !(s.task && s.task.site != null));
       if (!free.length) {   // keiner frei: einen Arbeiter holen, zuerst von pausierten oder wartenden Arbeitsplätzen
         const rank = (s) => { const jb = this.byId(s.job); return (jb && jb.paused ? 0 : 2) + (s.state === 'seek' && s.timer > 0 ? 0 : 1); };
         free = this.settlers.filter((s) => s.job != null && s.recruit == null && !s.carry && s.state !== 'working').sort((a, c) => rank(a) - rank(c)).slice(0, 1);
@@ -408,16 +440,21 @@ export const Realm = {
   availableSoldiers() {
     return this.soldiers.filter((s) => s.campaign == null && (s.state === 'home' || s.state === 'return') && (this.byId(s.home) || {}).type === 'barracks').sort((a, c) => c.hp - a.hp);
   },
-  // für Angriffe: alle aus der Kaserne und aus Türmen und Festungen alle bis auf eine Wache
-  attackers() {
-    const out = this.availableSoldiers();
+  // liegt ein Militärgebäude nah genug am Lager, um von dort anzugreifen?
+  inAttackRange(b, t) { return !!b && b.built && Math.hypot(b.x + b.w / 2 - t.cx - 0.5, b.y + b.h / 2 - t.cy - 0.5) <= (ATTACK_RANGE[b.type] || 0); },
+  // für Angriffe: alle aus der Kaserne, aus Türmen und Festungen alle bis auf eine Wache.
+  // Mit Lager t nur aus Gebäuden in Reichweite dieses Lagers.
+  attackers(t) {
+    const out = this.availableSoldiers().filter((s) => !t || this.inAttackRange(this.byId(s.home), t));
     for (const b of this.buildings) {
-      if (b.type !== 'tower' && b.type !== 'fort') continue;
+      if ((b.type !== 'tower' && b.type !== 'fort') || (t && !this.inAttackRange(b, t))) continue;
       const crew = this.soldiers.filter((s) => s.home === b.id && s.state === 'garrison' && s.campaign == null).sort((a, c) => c.hp - a.hp);
       out.push(...crew.slice(1));
     }
     return out;
   },
+  // eigene Militärgebäude in Reichweite eines Lagers (für die Anzeige)
+  attackSources(t) { return this.buildings.filter((b) => (b.type === 'barracks' || b.type === 'tower' || b.type === 'fort') && this.inAttackRange(b, t)); },
   assignGarrisons() {
     for (const b of this.buildings) {
       if (!b.built || (b.type !== 'tower' && b.type !== 'fort')) continue;
@@ -464,7 +501,7 @@ export const Realm = {
           if (f && s.cd <= 0) { s.cd = this.cdOf(s); this.shoot(s, f, { x: cx, y: home.y - (home.type === 'tower' ? 0.6 : 0.2) }); }
           return;
         }
-        const f = this.nearestFoe(cx, cy, 10, 'raid');
+        const f = this.nearestFoe(cx, cy, 10, 'raid') || this.nearestFoe(cx, cy, CONTACT_R + 1);
         if (f) { const d = this.door(home); s.x = d.x + 0.5; s.y = d.y + 0.5; s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; }
         return;
       }
@@ -473,7 +510,7 @@ export const Realm = {
         if (s.path && this.follow(s, dt * spd * 0.5) === 'blocked') s.path = null;
         if ((s.think -= dt) > 0) return;
         s.think = 0.5;
-        const f = this.raidTarget(s.x, s.y);
+        const f = this.raidTarget(s.x, s.y) || this.contactFoe(s);
         if (f) { s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; return; }
         if (!s.path && this.rng() < 0.12) {
           const d = this.door(home), tx = d.x + Math.floor(this.rng() * 5) - 2, ty = d.y + Math.floor(this.rng() * 2);
@@ -489,7 +526,7 @@ export const Realm = {
         }
         const d = this.door(home);
         if (!s.path) {
-          const r = this.unitGo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 150000);
+          const r = this.unitGo(s, (x, y) => x === d.x && y === d.y, d.x, d.y, 300000);
           if (r !== 'go') { if (!r) { s.x = d.x + 0.5; s.y = d.y + 0.5; } this.arriveHome(s, home); }
           return;
         }
@@ -509,7 +546,7 @@ export const Realm = {
         if (!s.path) {
           if ((s.repath = (s.repath || 0) - dt) > 0) return;
           s.repath = 1;
-          const r = this.unitGo(s, nextToRect(t.hall.x, t.hall.y, 3, 3), t.cx, t.cy, 150000);
+          const r = this.unitGo(s, nextToRect(t.hall.x, t.hall.y, 3, 3), t.cx, t.cy, 300000);
           if (r === 'here') this.tryCapture(t);
           else if (!r) { s.campaign = null; s.state = 'return'; this.toast('Ein Soldat findet keinen Weg zum Lager und kehrt um.'); }
           return;
@@ -520,7 +557,8 @@ export const Realm = {
       }
       case 'fight': {
         const f = this.foes.find((x) => x.id === s.foe);
-        const tooFar = !s.ordered && f && (s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > 12
+        // aufgeben nur, wenn der Feind nicht mehr nah ist und weit weg vom Platz oder Zuhause (sonst pendelt der Soldat)
+        const tooFar = !s.ordered && f && dist(s, f) > CONTACT_R + 2 && (s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > 12
           : s.campaign == null && home && Math.hypot(f.x - home.x, f.y - home.y) > 30 && !this.inLand(Math.floor(f.x), Math.floor(f.y)));
         const giveUp = !f || (s.stuckT || 0) > 3 || tooFar;
         if (giveUp) {
@@ -532,13 +570,14 @@ export const Realm = {
           s.state = s.campaign != null ? 'march' : s.post ? 'move' : 'return';
           return;
         }
+        if ((s.think -= dt) <= 0) { s.think = 0.4; const near = this.nearestFoe(s.x, s.y, 1.3); if (near && near !== f && dist(s, f) > 2.5 && !s.ordered) { s.foe = near.id; return; } }
         this.engage(s, f, dt, spd);
         return;
       }
-      case 'move': {   // auf dem Weg zum befohlenen Platz; wehrt sich unterwegs
+      case 'move': {   // auf dem Weg zum befohlenen Platz; kämpft, sobald Feinde nah kommen
         if ((s.think -= dt) <= 0) {
           s.think = 0.4;
-          const f = this.nearestFoe(s.x, s.y, s.type === 'archer' ? this.rangeOf(s) : 3);
+          const f = this.contactFoe(s);
           if (f) { s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; return; }
         }
         const p = s.post;
@@ -546,7 +585,7 @@ export const Realm = {
         if (!s.path) {
           if ((s.repath = (s.repath || 0) - dt) > 0) return;
           s.repath = 1;
-          const r = this.unitGo(s, (x, y) => x === p.x && y === p.y, p.x, p.y, 150000);
+          const r = this.unitGo(s, (x, y) => x === p.x && y === p.y, p.x, p.y, 300000);
           if (r === 'here') s.state = 'hold';
           else if (!r) { s.post = { x: Math.floor(s.x), y: Math.floor(s.y) }; s.state = 'hold'; }
           return;
@@ -607,6 +646,14 @@ export const Realm = {
     }
     return best;
   },
+  // Feind in Kontaktweite eines Soldaten
+  contactFoe(s) { return this.nearestFoe(s.x, s.y, s.type === 'archer' ? Math.max(CONTACT_R, this.rangeOf(s) + 1) : CONTACT_R); },
+  // wer getroffen wird, wehrt sich (gegen Türme und Schiffe geht das nicht)
+  provoke(u, by) {
+    if (!by || u.hp <= 0 || u.state === 'fight' || u.state === 'garrison') return;
+    if (u.kind === 'soldier' && by.kind === 'foe' && this.foes.includes(by)) Object.assign(u, { foe: by.id, state: 'fight', path: null, stuckT: 0 });
+    else if (u.kind === 'foe' && by.kind === 'soldier' && this.soldiers.includes(by)) Object.assign(u, { foe: by.id, state: 'fight', path: null, repath: 0, stuckT: 0 });
+  },
   nearestFoe(x, y, r, mode) {
     let best = null, bd = r;
     for (const f of this.foes) {
@@ -630,7 +677,7 @@ export const Realm = {
   /* ---------- Bewegung und Kampf ---------- */
   // mit Boot (ab dem ersten fertigen Boot) auch übers Wasser; fremde Krieger nur zu Fuß
   passFor(e) {
-    if (e && e.kind === 'foe') return null;
+    if (e && (e.kind === 'foe' || e.kind === 'catapult')) return null;
     if (e && e.kind === 'ship') return this.shipPass || (this.shipPass = (x, y) => this.world.isWater(x, y) || this.world.g(x, y) === G.BRIDGE);
     if (this.boats > 0) return this.sailPass || (this.sailPass = (x, y) => this.world.walkable(x, y) || this.world.isWater(x, y));
     return null;
@@ -680,7 +727,7 @@ export const Realm = {
     const dmg = this.atkOf(a) * (0.75 + this.rng() * 0.5);
     d.hp -= dmg; d.hurtT = 0.25; a.swing = 0.3;
     this.sound('clash', d.x, d.y);
-    if (d.hp <= 0) this.killUnit(d, a);
+    if (d.hp <= 0) this.killUnit(d, a); else this.provoke(d, a);
   },
   // Pfeil oder Bolzen: fliegt kurz, trifft dann (das Ziel kann nicht ausweichen)
   shoot(a, tg, from) {
@@ -696,10 +743,11 @@ export const Realm = {
       sh.t += dt;
       if (sh.t < sh.dur) continue;
       this.shots.splice(i, 1);
+      if (sh.kind === 'stone') { this.stoneHit(sh); continue; }
       const tg = (sh.tkind === 'soldier' ? this.soldiers : this.foes).find((u) => u.id === sh.tid);
       if (!tg) continue;
       tg.hp -= sh.dmg; tg.hurtT = 0.25;
-      if (tg.hp <= 0) this.killUnit(tg, sh.by);
+      if (tg.hp <= 0) this.killUnit(tg, sh.by); else this.provoke(tg, sh.by);
     }
   },
   killUnit(u, by) {
@@ -803,7 +851,7 @@ export const Realm = {
     if (n < 2) return false;
     const d = this.campDoor(t);
     const goal = nextToRect(target.x, target.y, target.w, target.h);
-    const path = findPath(this.world, d.x, d.y, goal, target.x + 1, target.y + 1, 150000);
+    const path = findPath(this.world, d.x, d.y, goal, target.x + 1, target.y + 1, 300000);
     if (!path || !path.length) return false;
     t.warriors -= n;
     t.raid = { n, killed: 0, home: 0, stolen: {}, warned: false, burned: false };
@@ -864,19 +912,39 @@ export const Realm = {
     const t = this.tribes[f.tribe], door = this.campDoor(t);
     if (f.state === 'fight') {
       const tg = this.soldiers.find((s) => s.id === f.foe);
-      const tooFar = f.mode === 'defend' && tg && Math.hypot(tg.x - t.cx - 0.5, tg.y - t.cy - 0.5) > ALARM_R + 3;
+      const tooFar = f.mode === 'defend' && tg && dist(f, tg) > CONTACT_R + 2 && Math.hypot(tg.x - t.cx - 0.5, tg.y - t.cy - 0.5) > ALARM_R + 3;
       if (!tg || tg.state === 'garrison' || tooFar || (f.stuckT || 0) > 3) {
         f.foe = null; f.stuckT = 0; f.path = null;
-        f.state = f.mode === 'defend' ? 'guard' : f.loot ? 'flee' : 'march';
+        f.state = f.mode === 'defend' ? 'guard' : f.mode === 'sally' ? 'sally' : f.loot ? 'flee' : 'march';
         return;
       }
+      if ((f.think -= dt) <= 0) { f.think = 0.4; const near = this.nearestSoldier(f.x, f.y, 1.3); if (near && near !== tg && dist(f, tg) > 2.5) { f.foe = near.id; return; } }
       this.engage(f, tg, dt, this.foeSpeed(f));
       return;
     }
     if ((f.think -= dt) <= 0) {
       f.think = 0.4;
-      const s = this.nearestSoldier(f.x, f.y, f.mode === 'defend' ? 8 : f.range > 1.5 ? f.range + 1 : 4);
+      const s = this.nearestSoldier(f.x, f.y, f.mode === 'defend' ? 8 : f.range > 1.5 ? Math.max(CONTACT_R, f.range + 1) : CONTACT_R);
       if (s && (f.mode !== 'defend' || Math.hypot(s.x - t.cx - 0.5, s.y - t.cy - 0.5) <= ALARM_R + 2)) { f.foe = s.id; f.state = 'fight'; f.path = null; f.repath = 0; f.stuckT = 0; return; }
+    }
+    if (f.mode === 'sally') {   // aus dem Lager gestürmt, um ein Katapult zu zerschlagen
+      const c = this.sieges.find((x) => x.id === f.target);
+      if (!c || t.defeated) { f.mode = 'raid'; f.state = 'flee'; f.path = null; return; }
+      const dc = dist(f, c);
+      if (dc > 1.1 && dc < 2.2) {   // letztes Stück direkt heran (auch schräg neben dem Katapult)
+        const step = Math.min(dc - 0.9, dt * this.foeSpeed(f));
+        f.x += (c.x - f.x) / dc * step; f.y += (c.y - f.y) / dc * step; f.walkT = (f.walkT || 0) + 0.15; f.path = null;
+        f.facing = Math.abs(c.x - f.x) > Math.abs(c.y - f.y) ? (c.x > f.x ? 1 : 3) : (c.y > f.y ? 2 : 0);
+        return;
+      }
+      if (dc <= 1.1) {
+        f.path = null;
+        if (f.cd <= 0) { f.cd = (f.cdT || HIT_CD) * (0.9 + this.rng() * 0.2); f.swing = 0.3; c.hp -= f.atk * (0.75 + this.rng() * 0.5); c.hurtT = 0.25; this.sound('clash', c.x, c.y); if (c.hp <= 0) this.destroyCatapult(c); }
+        return;
+      }
+      if (!f.path || (f.repath = (f.repath || 0) - dt) <= 0) { f.repath = 1; this.unitGo(f, (x, y) => Math.max(Math.abs(x - Math.floor(c.x)), Math.abs(y - Math.floor(c.y))) <= 1, Math.floor(c.x), Math.floor(c.y), 30000); }
+      if (f.path && this.follow(f, dt * this.foeSpeed(f)) === 'blocked') f.path = null;
+      return;
     }
     if (f.mode === 'defend') {
       const threat = this.soldiers.some((s) => s.campaign === f.tribe) || this.nearestSoldier(t.cx + 0.5, t.cy + 0.5, ALARM_R + 2);
@@ -889,7 +957,7 @@ export const Realm = {
       let st = this.byId(f.target);
       if (!st || st.type !== 'storage') { st = this.nearestStorage(f.x, f.y); if (!st) { f.state = 'flee'; return; } f.target = st.id; f.path = null; }
       if (!f.path) {
-        const r = this.unitGo(f, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 150000);
+        const r = this.unitGo(f, nextToRect(st.x, st.y, st.w, st.h), st.x + 1, st.y + 1, 300000);
         if (r === 'here') { f.state = 'plunder'; f.timer = 3; } else if (!r) f.state = 'flee';
         return;
       }
@@ -905,7 +973,7 @@ export const Realm = {
     // flee: mit oder ohne Beute zurück ins Lager
     if (t.defeated) { this.foes = this.foes.filter((x) => x !== f); if (t.raid) { t.raid.home++; this.raidCheck(t); } return; }
     if (!f.path) {
-      const r = this.unitGo(f, (x, y) => x === door.x && y === door.y, door.x, door.y, 150000);
+      const r = this.unitGo(f, (x, y) => x === door.x && y === door.y, door.x, door.y, 300000);
       if (r !== 'go') this.foeHome(f);
       return;
     }
@@ -979,8 +1047,8 @@ export const Realm = {
   attackTribe(ti, want, list) {
     const t = this.tribes[ti];
     if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
-    const avail = list || this.attackers();
-    if (!avail.length) return 'Keine freien Soldaten. Bilde in der Kaserne welche aus. Jeder Turm behält eine Wache.';
+    const avail = list || this.attackers(t);
+    if (!avail.length) return list || this.attackSources(t).length ? 'Keine freien Soldaten in der Nähe. Bilde in der Kaserne welche aus. Jeder Turm behält eine Wache.' : 'Kein eigenes Militärgebäude in Reichweite. Bau einen Wachturm näher am Lager.';
     if (t.island && this.boats <= 0) return 'Die Insel erreichst du nur mit einem Boot. Bau eine Werft und bestell eins.';
     let pick = list ? list.slice() : typeof want === 'number' ? avail.slice(0, want)
       : [...avail.filter((s) => s.type !== 'archer').slice(0, want.sword || 0), ...avail.filter((s) => s.type === 'archer').slice(0, want.archer || 0)];
@@ -991,7 +1059,7 @@ export const Realm = {
     for (const s of pick) {
       if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
       s.campaign = ti; s.foe = null; s.post = null; s.ordered = false;
-      const r = this.unitGo(s, goal, t.cx, t.cy, 150000);
+      const r = this.unitGo(s, goal, t.cx, t.cy, 300000);
       if (!r) { s.campaign = null; continue; }
       s.state = 'march'; s.think = 0; sent++;
     }
@@ -1061,7 +1129,101 @@ export const Realm = {
   recall(ti) {
     let n = 0;
     for (const s of this.soldiers) if (s.campaign === ti) { s.campaign = null; s.foe = null; s.state = 'return'; s.path = null; n++; }
+    for (const c of this.sieges) if (c.campaign === ti && c.state !== 'return') { c.state = 'return'; c.path = null; }
     return n;
+  },
+  /* ---------- Belagerung ---------- */
+  // Katapulte rollen in Schussweite und beschießen die Hütten eines Lagers
+  siegeTribe(ti, n) {
+    const t = this.tribes[ti];
+    if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
+    if (t.island) return 'Auf die Insel kommen keine Katapulte.';
+    const free = (this.catapults || 0) - this.sieges.length;
+    if (free <= 0) return 'Kein Katapult bereit. Bestell eins beim Geschützbauer.';
+    if (!this.attackSources(t).length) return 'Kein eigenes Militärgebäude in Reichweite. Bau einen Wachturm näher am Lager.';
+    if (!t.huts.length) return 'Alle Hütten dieses Lagers sind schon zerstört.';
+    const home = this.buildings.find((b) => b.type === 'siege' && b.built) || this.buildings.find((b) => b.type === 'barracks' && b.built) || this.nearestStorage(t.cx, t.cy);
+    if (!home) return 'Kein Ort, von dem Katapulte losrollen können.';
+    const d = this.door(home), k = Math.min(n, free);
+    for (let i = 0; i < k; i++) this.sieges.push({ id: this.nextId++, kind: 'catapult', x: d.x + 0.5, y: d.y + 0.5 + i * 0.2, home: home.id, campaign: ti, state: 'roll', hp: CATAPULT.hp, maxHp: CATAPULT.hp, cd: 0, path: null, pi: 0, facing: 2, swing: 0, hurtT: 0, walkT: 0, repath: i * 0.4 });
+    this.toast(`${k === 1 ? 'Ein Katapult rollt' : `${k} Katapulte rollen`} zum Lager der ${t.name}. Schick Soldaten zum Schutz mit.`);
+    return null;
+  },
+  updateSieges(dt) {
+    for (const c of this.sieges.slice()) {
+      if (!this.sieges.includes(c)) continue;
+      if (c.hurtT > 0) c.hurtT -= dt;
+      if (c.swing > 0) c.swing -= dt;
+      const t = this.tribes[c.campaign];
+      if (c.state !== 'return' && (!t || t.defeated || !t.huts.length)) { c.state = 'return'; c.path = null; }
+      if (c.state === 'fire') {
+        if ((c.cd -= dt) > 0) continue;
+        c.cd = CATAPULT.cd * (0.9 + this.rng() * 0.2);
+        const h = t.huts[Math.floor(this.rng() * t.huts.length)];
+        const x0 = c.x, y0 = c.y - 0.6, x1 = h.x + 1, y1 = h.y + 1;
+        this.shots.push({ x0, y0, x1, y1, t: 0, dur: 0.7 + Math.hypot(x1 - x0, y1 - y0) * 0.07, kind: 'stone', tribe: c.campaign, hx: h.x, hy: h.y });
+        c.swing = 0.6; c.facing = x1 >= c.x ? 1 : 3;
+        this.sound('catapult', c.x, c.y);
+        this.sallyFor(t, c);
+        continue;
+      }
+      if (!c.path) {
+        if ((c.repath = (c.repath || 0) - dt) > 0) continue;
+        c.repath = 1;
+        let r = null;
+        if (c.state === 'roll') r = this.unitGo(c, (x, y) => { const dd = Math.hypot(x - t.cx, y - t.cy); return dd >= 8 && dd <= CATAPULT.range - 1; }, t.cx, t.cy, 300000);
+        else { const home = this.byId(c.home) || this.nearestStorage(c.x, c.y); if (home) r = this.unitGo(c, nextToRect(home.x, home.y, home.w, home.h), home.x + 1, home.y + 1, 300000); }
+        if (r === 'here') { if (c.state === 'roll') { c.state = 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
+        else if (!r) { if (c.state === 'roll') { this.toast('Ein Katapult findet keinen Weg zum Lager und rollt zurück.'); c.state = 'return'; } else this.sieges = this.sieges.filter((x) => x !== c); }
+        continue;
+      }
+      const r = this.follow(c, dt * CATAPULT.speed);
+      if (r === true) { c.path = null; if (c.state === 'roll') { c.state = 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
+      else if (r === 'blocked') c.path = null;
+    }
+  },
+  // Stein schlägt ein: Hütte beschädigt, Krieger in der Nähe verletzt
+  stoneHit(sh) {
+    const t = this.tribes[sh.tribe];
+    this.sound('crash', sh.x1, sh.y1);
+    if (!t || t.defeated) return;
+    for (const f of this.foes.slice()) if (f.tribe === sh.tribe && Math.hypot(f.x - sh.x1, f.y - sh.y1) < 1.6) { f.hp -= CATAPULT.splash; f.hurtT = 0.25; if (f.hp <= 0) this.killUnit(f, null); }
+    const h = t.huts.find((x) => x.x === sh.hx && x.y === sh.hy);
+    if (!h) return;
+    h.hp = (h.hp == null ? CATAPULT.hutHp : h.hp) - 1;
+    if (h.hp <= 0) this.destroyHut(t, h);
+  },
+  destroyHut(t, h) {
+    const ti = this.tribes.indexOf(t), w = this.world;
+    t.huts = t.huts.filter((x) => x !== h);
+    for (let dy = 0; dy < h.h; dy++) for (let dx = 0; dx < h.w; dx++) { const k = w.i(h.x + dx, h.y + dy); if (w.tstruct[k] === ti) w.tstruct[k] = -1; w.touch(h.x + dx, h.y + dy); }
+    const lost = Math.min(t.warriors, CATAPULT.perHut);
+    t.warriors -= lost;
+    t.cap0 = Math.max(6, (t.cap0 || t.cap) - CATAPULT.perHut); t.cap = Math.max(t.cap0, t.cap - CATAPULT.perHut);
+    this.floatText(h.x + 1, h.y, 'zerstört', '#ffb35a');
+    this.toast(`Eine Hütte der ${t.name} ist eingestürzt${lost ? `, ${lost} Krieger weniger` : ''}.`);
+    this.today.events.push(`Deine Katapulte haben eine Hütte der ${t.name} zerstört.`);
+  },
+  // das Lager schickt Krieger los, um das Katapult zu zerschlagen (höchstens alle 30 s)
+  sallyFor(t, c) {
+    if (t.warriors <= 0 || (t.sallyT || 0) > this.clock) return;
+    t.sallyT = this.clock + 30;
+    const ti = this.tribes.indexOf(t), door = this.campDoor(t), n = Math.min(t.warriors, 2 + this.tribeTier(t));
+    for (let i = 0; i < n; i++) {
+      const f = this.makeFoe(t, ti, 'sally', door.x + 0.5 + (this.rng() - 0.5) * 0.6, door.y + 0.5, this.warriorType());
+      Object.assign(f, { state: 'sally', target: c.id, wait: i * 0.4, think: 0 });
+      this.foes.push(f);
+    }
+    t.warriors -= n;
+    if (!t.discovered) this.discoverTribe(t, true);
+    this.toast(`Die ${t.name} schicken ${n} Krieger gegen dein Katapult!`);
+  },
+  destroyCatapult(c) {
+    this.sieges = this.sieges.filter((x) => x !== c);
+    this.catapults = Math.max(0, (this.catapults || 0) - 1);
+    this.sound('crash', c.x, c.y);
+    this.floatText(c.x, c.y - 0.6, 'zerschlagen', '#ff9a8a');
+    this.toast('Ein Katapult wurde zerschlagen.');
   },
   boatSeats() { let n = 0; for (let t = 1; t < this.fleet.length; t++) n += (this.fleet[t] || 0) * SHIPYARD_LEVELS[t].seats; return n; },
   fleetText() { return [3, 2, 1].filter((t) => this.fleet[t] > 0).map((t) => `${this.fleet[t]} ${this.fleet[t] === 1 ? SHIPYARD_LEVELS[t].boat : SHIPYARD_LEVELS[t].boats}`).join(', ') || 'keine Boote'; },
@@ -1105,8 +1267,8 @@ export const Realm = {
   },
   saveRealm() {
     return {
-      tribes: this.tribes.map((t, i) => ({ ...t, raid: null, warriors: t.warriors + this.foesOf(i) })),
-      raidCalm: this.raidCalm || 0, bal: BALANCE,
+      tribes: this.tribes.map((t, i) => ({ ...t, raid: null, sallyT: 0, warriors: t.warriors + this.foesOf(i) })),
+      raidCalm: this.raidCalm || 0, bal: BALANCE, catapults: this.catapults || 0,
       soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
@@ -1124,6 +1286,7 @@ export const Realm = {
     });
     this.markCamps();
     this.raidCalm = d.raidCalm || 0;
+    this.catapults = d.catapults || 0;
     if ((d.bal || 0) < BALANCE) this.rebalance();
   },
 };

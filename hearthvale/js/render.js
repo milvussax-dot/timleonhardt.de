@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=14';
-import { cellRand } from './world.js?v=14';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY } from './data.js?v=16';
+import { cellRand } from './world.js?v=16';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -339,6 +339,16 @@ export class Renderer {
     g.fillRect(X + Wd / 2 - S * 0.08, top + S * 0.4, S * 0.16, S * 0.28);
     b._windows = manned ? [[X + Wd / 2, top + S * 0.54]] : [];
     if (manned) this.flag(g, X + Wd / 2, top - S * 0.2, S * 0.75, C.banner, t);
+    const lvl = b.level || 1;
+    if (lvl >= 2 && b.built) {   // Wehrturm und Bollwerk: Geschütz oben auf der Plattform
+      const cx = X + Wd / 2 + S * 0.12, cy = top - S * 0.24, rec = (b.swing || 0) > 0 ? S * 0.05 : 0;
+      if (lvl >= 3) { g.fillStyle = shade(C.stoneWall, -0.18); g.fillRect(tx - S * 0.14, bot - S * 0.42, tw + S * 0.28, S * 0.16); }
+      g.strokeStyle = '#5a3a20'; g.lineWidth = Math.max(2, S * 0.06);
+      g.beginPath(); g.moveTo(cx - S * 0.2 + rec, cy); g.lineTo(cx + S * 0.22 + rec, cy); g.stroke();
+      g.strokeStyle = lvl >= 3 ? '#c9a24a' : '#8a5a30'; g.lineWidth = Math.max(1.5, S * 0.045);
+      g.beginPath(); g.arc(cx + S * 0.12 + rec, cy, S * 0.17, -1.2, 1.2); g.stroke();
+      if (lvl >= 3) this.flag(g, X + Wd / 2 - S * 0.3, top - S * 0.2, S * 0.6, '#c9a24a', t + 1);
+    }
     if (game.soldiers.some((s) => s.home === b.id && s.state === 'garrison' && s.type === 'archer')) {
       const ax = X + Wd / 2 - S * 0.22, ay = top - S * 0.16;
       g.fillStyle = '#2f5a2c'; g.beginPath(); g.arc(ax, ay - S * 0.06, S * 0.09, Math.PI, 0); g.fill();
@@ -483,7 +493,39 @@ export class Renderer {
     g.restore();
   }
 
+  // Katapult: Holzgestell auf Rädern, der Wurfarm schnellt beim Schuss nach vorn
+  catapult(g, X, Y, S, c) {
+    const dir = c.facing === 3 ? -1 : 1, sw = Math.max(0, c.swing || 0);
+    g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.ellipse(X, Y + S * 0.1, S * 0.44, S * 0.12, 0, 0, 7); g.fill();
+    g.fillStyle = '#7a5230'; g.fillRect(X - S * 0.38, Y - S * 0.14, S * 0.76, S * 0.14);
+    g.fillStyle = '#4a3020';
+    for (const wx of [-0.27, 0.27]) { g.beginPath(); g.arc(X + wx * S, Y + S * 0.02, S * 0.11, 0, 7); g.fill(); }
+    g.strokeStyle = '#8a5a30'; g.lineWidth = Math.max(2, S * 0.06);
+    g.beginPath(); g.moveTo(X - S * 0.14, Y - S * 0.12); g.lineTo(X, Y - S * 0.38); g.lineTo(X + S * 0.14, Y - S * 0.12); g.stroke();
+    const th = sw > 0 ? -1.2 : Math.PI - 0.5, L = S * 0.52, px = X, py = Y - S * 0.36;
+    const ex = px + Math.cos(th) * L * dir, ey = py + Math.sin(th) * L, bx = px - Math.cos(th) * L * 0.35 * dir, by = py - Math.sin(th) * L * 0.35;
+    g.strokeStyle = '#a0703c'; g.lineWidth = Math.max(2, S * 0.07);
+    g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.stroke();
+    if (!sw) { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(ex, ey - S * 0.04, S * 0.09, 0, 7); g.fill(); }
+    if (c.hp < c.maxHp) { const w = S * 0.6; g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(X - w / 2, Y - S * 0.95, w, 4); g.fillStyle = c.hurtT > 0 ? '#fff' : '#e0b34a'; g.fillRect(X - w / 2, Y - S * 0.95, w * Math.max(0, c.hp / c.maxHp), 4); }
+  }
+  // getroffene Hütte: Brandflecken und ein Riss
+  tentDamage(g, X, Y, S, hp) {
+    g.fillStyle = 'rgba(40,28,18,0.45)';
+    g.beginPath(); g.ellipse(X + S * 0.7, Y + S * 1.2, S * 0.28, S * 0.18, 0.4, 0, 7); g.fill();
+    if (hp <= 1) { g.beginPath(); g.ellipse(X + S * 1.3, Y + S * 1.0, S * 0.22, S * 0.15, -0.3, 0, 7); g.fill(); }
+    g.strokeStyle = 'rgba(30,20,10,0.7)'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(X + S * 0.9, Y + S * 0.6); g.lineTo(X + S * 1.05, Y + S * 0.95); g.lineTo(X + S * 0.95, Y + S * 1.2); g.stroke();
+  }
   shot(g, sh, ox, oy, S) {
+    if (sh.kind === 'stone') {   // Stein im hohen Bogen, mit Schatten am Boden
+      const p = Math.min(1, sh.t / sh.dur), len = Math.hypot(sh.x1 - sh.x0, sh.y1 - sh.y0), arc = len * 0.35;
+      const gx = sh.x0 + (sh.x1 - sh.x0) * p, gy = sh.y0 + (sh.y1 - sh.y0) * p, py = gy - arc * 4 * p * (1 - p);
+      g.fillStyle = 'rgba(0,0,0,0.18)'; g.beginPath(); g.ellipse(ox + gx * S, oy + (gy + 0.55) * S, S * 0.12, S * 0.05, 0, 0, 7); g.fill();
+      g.fillStyle = '#8a9098'; g.beginPath(); g.arc(ox + gx * S, oy + py * S, Math.max(3, S * 0.12), 0, 7); g.fill();
+      g.fillStyle = '#b5bbc2'; g.beginPath(); g.arc(ox + gx * S - 1.5, oy + py * S - 1.5, Math.max(1.5, S * 0.05), 0, 7); g.fill();
+      return;
+    }
     const p = Math.min(1, sh.t / sh.dur), len = Math.hypot(sh.x1 - sh.x0, sh.y1 - sh.y0), arc = len * 0.12;
     const px = sh.x0 + (sh.x1 - sh.x0) * p, py = sh.y0 + (sh.y1 - sh.y0) * p - arc * 4 * p * (1 - p);
     const a = Math.atan2((sh.y1 - sh.y0) - arc * 4 * (1 - 2 * p), sh.x1 - sh.x0), bolt = sh.kind === 'bolt', L = (bolt ? 0.45 : 0.3) * S;
@@ -564,6 +606,7 @@ export class Renderer {
     for (const s of game.soldiers) if (s.state !== 'garrison' && inView(s)) list.push({ y: s.y, k: 'm', s });
     for (const f of game.foes) if (inView(f) && w.seen[w.i(Math.max(0, Math.min(w.w - 1, Math.floor(f.x))), Math.max(0, Math.min(w.h - 1, Math.floor(f.y))))]) list.push({ y: f.y, k: 'f', f });
     for (const sh of game.ships || []) if (inView(sh)) list.push({ y: sh.y, k: 'ship', sh });
+    for (const c of game.sieges || []) if (inView(c)) list.push({ y: c.y, k: 'cat', c });
     list.sort((a, c) => a.y - c.y);
     for (const d of list) {
       if (d.k === 'o') {
@@ -576,7 +619,7 @@ export class Renderer {
       else if (d.k === 's') {
         const s = d.s, job = s.job != null ? game.byId(s.job) : null;
         const hat = job ? BUILDINGS[job.type].hat : (s.task && s.task.site != null ? '#e8a23a' : s.recruit != null ? '#aab3bf' : null);
-        this.person(g, s, S, { shirt: '#5b7fa6', hat: hat || s.hat, carry: s.carry && s.carry.item, working: s.state === 'working' || s.state === 'building', boat: w.isWater(Math.floor(s.x), Math.floor(s.y)), t });
+        this.person(g, s, S, { shirt: s.haul ? '#8a6a3a' : '#5b7fa6', hat: hat || s.hat, carry: s.carry && s.carry.item, working: s.state === 'working' || s.state === 'building', boat: w.isWater(Math.floor(s.x), Math.floor(s.y)), t });
       } else if (d.k === 'p') {
         const p = game.player;
         this.person(g, p, S, { player: true, shirt: '#c0392b', hat: '#6b4a2b', working: !!p.action, progress: p.action ? p.action.t / p.action.total : null, boat: w.isWater(Math.floor(p.x), Math.floor(p.y)), t });
@@ -594,7 +637,8 @@ export class Renderer {
         const f = d.f, tr = game.tribes[f.tribe];
         this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: f.type === 'bow' ? 'bow' : 'spear', big: f.type === 'chief', crown: f.type === 'chief' ? tr.color : null, swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
       } else if (d.k === 'hall') this.hall(g, d.tr, ox + d.tr.hall.x * S, oy + d.tr.hall.y * S, S, t, season);
-      else if (d.k === 'tent') this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season);
+      else if (d.k === 'tent') { this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season); if (d.h.hp != null && d.h.hp < 3) this.tentDamage(g, ox + d.h.x * S, oy + d.h.y * S, S, d.h.hp); }
+      else if (d.k === 'cat') this.catapult(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c);
       else if (d.k === 'fire') this.fire(g, ox + d.x * S, oy + d.fy * S, S, t);
       else if (d.k === 'idle') { d.e.walkT = 0; this.person(g, d.e, S * 0.9, { shirt: d.tr.color, band: shade(d.tr.color, -0.3), weapon: 'spear', t }); }
     }
@@ -621,7 +665,7 @@ export class Renderer {
     } else if (ui.hover) {
       g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 2; g.strokeRect(ox + ui.hover.x * S + 1, oy + ui.hover.y * S + 1, S - 2, S - 2);
     }
-    if (ui.selected && BUILDINGS[ui.selected.type].radius) { const b = ui.selected; g.strokeStyle = 'rgba(255,255,255,0.45)'; g.setLineDash([6, 6]); g.lineWidth = 2; g.beginPath(); g.arc(ox + (b.x + 1) * S, oy + (b.y + 1) * S, game.radiusOf(b) * S, 0, 7); g.stroke(); g.setLineDash([]); }
+    if (ui.selected && game.radiusOf(ui.selected)) { const b = ui.selected; g.strokeStyle = 'rgba(255,255,255,0.45)'; g.setLineDash([6, 6]); g.lineWidth = 2; g.beginPath(); g.arc(ox + (b.x + 1) * S, oy + (b.y + 1) * S, game.radiusOf(b) * S, 0, 7); g.stroke(); g.setLineDash([]); }
     // schwebende Zahlen
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `800 ${Math.round(12 + S * 0.12)}px Nunito, sans-serif`;
     for (const f of game.fx) {
@@ -708,50 +752,55 @@ export class Renderer {
     g.setLineDash([]);
   }
   // Nebel über Unerkundetem: halb durchsichtig, wird zum Rand hin über einige Felder schwächer.
-  // Die Deckkraft liegt im Speicher (fogImg); jedes Bild lädt nur den sichtbaren Ausschnitt in eine kleine
-  // Leinwand und zieht ihn auf Bildschirmgröße. Ein riesig vergrößertes Bild über die ganze Karte
-  // oder eine nur einmal gefüllte Leinwand lässt Safari sonst irgendwann einfach weg.
+  // Berechnet wird nur der sichtbare Ausschnitt (plus Rand), damit auch große Täler flüssig bleiben.
+  // Jedes Bild lädt den Ausschnitt in eine kleine Leinwand und zieht ihn auf Bildschirmgröße;
+  // ein riesig vergrößertes Bild über die ganze Karte lässt Safari sonst irgendwann einfach weg.
   drawFog(g, game, ox, oy, S) {
     const w = game.world, W2 = w.w + 2, H2 = w.h + 2;
     if (!this.fogSm || this.fogSm.width !== W2 || this.fogSm.height !== H2) {
       this.fogSm = document.createElement('canvas'); this.fogSm.width = W2; this.fogSm.height = H2;
       this.fogImg = this.fogSm.getContext('2d').createImageData(W2, H2);
-      this.fogDist = new Float32Array(W2 * H2); this.fogKey = null;
+      this.fogKey = null;
     }
-    // neu berechnen, wenn mehr erkundet ist, aber höchstens viermal pro Sekunde (Siedler decken laufend auf)
-    const key = game.fogVer + ':' + game.seed, now = performance.now();
-    if (this.fogWorld !== w || (this.fogKey !== key && !(now - this.fogAt < 250))) {
-      // Abstand jedes Felds zum nächsten erkundeten Feld (zwei Durchgänge, schräg √2)
-      const D = this.fogDist, INF = 1e6, R2 = 1.414;
-      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-        const inside = x > 0 && y > 0 && x <= w.w && y <= w.h;
-        D[y * W2 + x] = inside && w.seen[(y - 1) * w.w + x - 1] ? 0 : INF;
-      }
-      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-        const i = y * W2 + x; let v = D[i];
-        if (!v) continue;
-        if (x > 0) v = Math.min(v, D[i - 1] + 1);
-        if (y > 0) { v = Math.min(v, D[i - W2] + 1); if (x > 0) v = Math.min(v, D[i - W2 - 1] + R2); if (x < W2 - 1) v = Math.min(v, D[i - W2 + 1] + R2); }
-        D[i] = v;
-      }
-      for (let y = H2 - 1; y >= 0; y--) for (let x = W2 - 1; x >= 0; x--) {
-        const i = y * W2 + x; let v = D[i];
-        if (!v) continue;
-        if (x < W2 - 1) v = Math.min(v, D[i + 1] + 1);
-        if (y < H2 - 1) { v = Math.min(v, D[i + W2] + 1); if (x < W2 - 1) v = Math.min(v, D[i + W2 + 1] + R2); if (x > 0) v = Math.min(v, D[i + W2 - 1] + R2); }
-        D[i] = v;
-      }
-      const d = this.fogImg.data;
-      for (let i = 0; i < W2 * H2; i++) {
-        const t = Math.min(1, D[i] / FOG_EDGE), a = FOG_MAX * t * t * (3 - 2 * t);
-        d[i * 4] = C.fog[0]; d[i * 4 + 1] = C.fog[1]; d[i * 4 + 2] = C.fog[2]; d[i * 4 + 3] = Math.round(a * 255);
-      }
-      this.fogKey = key; this.fogWorld = w; this.fogAt = now;
-    }
+    // sichtbare Felder left … right-1, top … bottom-1 (-1 und w sind der Rand außerhalb der Karte)
     const vw = this.W / S, vh = this.H / S;
     const left = Math.max(-1, Math.floor(this.cam.x - vw / 2) - 1), top = Math.max(-1, Math.floor(this.cam.y - vh / 2) - 1);
     const right = Math.min(w.w + 1, Math.ceil(this.cam.x + vw / 2) + 1), bottom = Math.min(w.h + 1, Math.ceil(this.cam.y + vh / 2) + 1);
     if (right <= left || bottom <= top) return;
+    const key = game.fogVer + ':' + game.seed + ':' + left + ':' + top + ':' + right + ':' + bottom;
+    if (this.fogKey !== key || this.fogWorld !== w) {
+      // Abstand jedes Felds zum nächsten erkundeten Feld (zwei Durchgänge, schräg √2), im Ausschnitt plus Rand
+      const M = FOG_EDGE + 1;
+      const x0 = Math.max(-1, left - M), y0 = Math.max(-1, top - M), x1 = Math.min(w.w, right + M), y1 = Math.min(w.h, bottom + M);
+      const RW = x1 - x0 + 1, RH = y1 - y0 + 1;
+      if (!this.fogDist || this.fogDist.length < RW * RH) this.fogDist = new Float32Array(RW * RH);
+      const D = this.fogDist, INF = 1e6, R2 = 1.414;
+      for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
+        const tx = x0 + x, ty = y0 + y;
+        D[y * RW + x] = tx >= 0 && ty >= 0 && tx < w.w && ty < w.h && w.seen[ty * w.w + tx] ? 0 : INF;
+      }
+      for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
+        const i = y * RW + x; let v = D[i];
+        if (!v) continue;
+        if (x > 0) v = Math.min(v, D[i - 1] + 1);
+        if (y > 0) { v = Math.min(v, D[i - RW] + 1); if (x > 0) v = Math.min(v, D[i - RW - 1] + R2); if (x < RW - 1) v = Math.min(v, D[i - RW + 1] + R2); }
+        D[i] = v;
+      }
+      for (let y = RH - 1; y >= 0; y--) for (let x = RW - 1; x >= 0; x--) {
+        const i = y * RW + x; let v = D[i];
+        if (!v) continue;
+        if (x < RW - 1) v = Math.min(v, D[i + 1] + 1);
+        if (y < RH - 1) { v = Math.min(v, D[i + RW] + 1); if (x < RW - 1) v = Math.min(v, D[i + RW + 1] + R2); if (x > 0) v = Math.min(v, D[i + RW - 1] + R2); }
+        D[i] = v;
+      }
+      const d = this.fogImg.data;
+      for (let ty = top; ty < bottom; ty++) for (let tx = left; tx < right; tx++) {
+        const t = Math.min(1, D[(ty - y0) * RW + (tx - x0)] / FOG_EDGE), a = FOG_MAX * t * t * (3 - 2 * t);
+        const i4 = ((ty + 1) * W2 + tx + 1) * 4;
+        d[i4] = C.fog[0]; d[i4 + 1] = C.fog[1]; d[i4 + 2] = C.fog[2]; d[i4 + 3] = Math.round(a * 255);
+      }
+      this.fogKey = key; this.fogWorld = w;
+    }
     this.fogSm.getContext('2d').putImageData(this.fogImg, 0, 0, left + 1, top + 1, right - left, bottom - top);
     g.imageSmoothingEnabled = true;
     g.drawImage(this.fogSm, left + 1, top + 1, right - left, bottom - top, ox + left * S, oy + top * S, (right - left) * S, (bottom - top) * S);
@@ -798,6 +847,8 @@ export class Renderer {
     for (const so of game.soldiers) if (so.state !== 'garrison') m.fillRect(so.x * sx - 1.5, so.y * sy - 1.5, 3, 3);
     m.fillStyle = '#ffd25a';
     for (const sh of game.ships || []) m.fillRect(sh.x * sx - 2, sh.y * sy - 2, 4, 4);
+    m.fillStyle = '#e0b34a';
+    for (const c of game.sieges || []) m.fillRect(c.x * sx - 2, c.y * sy - 2, 4, 4);
     const blink = Math.floor(performance.now() / 300) % 2;
     for (const f of game.foes) { const tr = game.tribes[f.tribe]; m.fillStyle = f.mode === 'raid' && blink ? '#ffffff' : tr.color; m.fillRect(f.x * sx - 1.5, f.y * sy - 1.5, 3, 3); }
     m.fillStyle = '#ff3b30'; m.beginPath(); m.arc(game.player.x * sx, game.player.y * sy, 3, 0, 7); m.fill();

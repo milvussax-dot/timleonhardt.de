@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=14';
-import { Renderer } from './render.js?v=14';
-import { cellRand } from './world.js?v=14';
-import { Sound } from './audio.js?v=14';
-import { FIRST_RAID } from './realm.js?v=14';
+import { Game } from './sim.js?v=16';
+import { Renderer } from './render.js?v=16';
+import { cellRand } from './world.js?v=16';
+import { Sound } from './audio.js?v=16';
+import { FIRST_RAID } from './realm.js?v=16';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS } from './data.js?v=14';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT } from './data.js?v=16';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -42,6 +42,7 @@ const ICON = {
   boat: svg('<path d="M2 11h16l-3 5H5z" fill="#8a5528"/><path d="M10 2v8H5z" fill="#f3ead8"/><path d="M10 2v9" stroke="#6b4228" stroke-width="1.2"/>'),
   soldier: svg('<circle cx="10" cy="6" r="3.5" fill="#f1c9a0"/><path d="M6.3 5.5a3.7 3.7 0 0 1 7.4 0z" fill="#aab3bf"/><path d="M4 18c0-4 2.5-6.5 6-6.5s6 2.5 6 6.5z" fill="#3a5f9a"/>'),
   bow: svg('<path d="M6 2c7 3 7 13 0 16" fill="none" stroke="#a0703c" stroke-width="2.2" stroke-linecap="round"/><path d="M6 2v16" stroke="#e8e0cc" stroke-width="1"/><path d="M3 10h13" stroke="#6b4228" stroke-width="1.4"/><path d="M16 10l-3-2v4z" fill="#c8ccd2"/>'),
+  catapult: svg('<path d="M2 15h15" stroke="#6b4228" stroke-width="2.2"/><circle cx="5.5" cy="16" r="2" fill="#4a3020"/><circle cx="13.5" cy="16" r="2" fill="#4a3020"/><path d="M6.5 14 15 4.5" stroke="#a0703c" stroke-width="2" stroke-linecap="round"/><circle cx="15.5" cy="4" r="2.2" fill="#9aa0a8"/>'),
   flag: svg('<path d="M5 2v16" stroke="#6b4228" stroke-width="1.6"/><path d="M6 3h10l-2.5 3.5L16 10H6z" fill="#c0392b"/>'),
 };
 const icon = (k) => ICON[k] || (ITEMS[k] && ITEMS[k].seed ? ICON.seed : '');
@@ -49,6 +50,9 @@ const chip = (k, n, miss) => `<span class="chip${miss ? ' miss' : ''}">${icon(k)
 const costChips = (cost, game) => Object.keys(cost || {}).map((k) => chip(k, cost[k], game && (game.stock[k] || 0) < cost[k])).join('');
 
 let game = null, R = null, speed = 1, tool = 'hand', buildType = null, ghost = null, hover = null, selected = null, panelMode = null, selTribe = null, attackW = { sword: 99, archer: 99 };
+let look = false;   // frei umschauen: die Ansicht folgt dir gerade nicht (Minikarte angeklickt oder Karte gezogen)
+const HINT0 = 'Klick auf Bäume, Steine oder Beeren. Felder legst du unter Bauen mit „Acker“ an.';
+const LOOK_HINT = 'Du schaust dich um: Ziehen verschiebt die Ansicht, Mausrad, zwei Finger oder + und − zoomen. Esc oder „Zurück zu dir“ holt dich zurück.';
 let modalOpen = false, hudT = 0, panelT = 0, saveT = 45, lastStock = {}, touchGhost = null, marketTab = 'sell';
 let troopMode = false, box = null, ping = null;   // Truppen steuern: freie Kamera, Auswahl, Rahmen, Zielmarker
 const sel = new Set();
@@ -210,7 +214,7 @@ function fitMini() {
 function startGame(fresh) {
   active = true;
   closeModal();
-  R.resize(); R.snap(game); fitMini();
+  R.resize(); R.snap(game); fitMini(); setLook(false);
   speed = 1; setSpeed(1); setTool('hand'); closePanel();
   lastStock = { ...game.stock };
   renderHud(true);
@@ -242,6 +246,8 @@ function showHelp(first) {
       <div class="box"><h3>Deine Siedlung</h3><ul>
         <li>Unter <b>Bauen</b> stellst du Gebäude auf. Freie Siedler bauen sie und arbeiten danach darin.</li>
         <li>Jeder Siedler isst abends 1 Portion. Satte Siedler holen neue ins Tal, solange es Betten gibt.</li>
+        <li>Siedler ohne Arbeitsplatz werden <b>Träger</b>: Sie holen die Ware an den Gebäuden ab und bringen Zutaten in die Werkstätten. So können die Arbeiter weiterarbeiten.</li>
+        <li>Auf gebauten <b>Wegen</b> laufen alle schneller, Träger noch einmal deutlich. Verbinde Lager und Werkstätten mit Wegen.</li>
         <li>Mit dem <b>Markt</b> verkaufst du Überschüsse, auch automatisch.</li>
         <li>Im Winter wächst nichts. Leg Vorräte an.</li>
         <li>Wohnhäuser lassen sich zum Steinhaus und Stadthaus ausbauen, Werkstätten auf Stufe 2.</li>
@@ -249,6 +255,7 @@ function showHelp(first) {
       <div class="box"><h3>Land und Erkundung</h3><ul>
         <li>Bauen kannst du nur in deinem Land, der hellen gestrichelten Grenze. Lager, Wohnhäuser und besetzte Wachtürme vergrößern es.</li>
         <li>Das Tal liegt im Nebel. Geh los, um es zu erkunden, und öffne Schatztruhen.</li>
+        <li>Klick auf die Minikarte oben rechts, um dort hinzuschauen, oder zieh die Karte mit der Maus. Mausrad, zwei Finger oder + und − zoomen. „Zurück zu dir“ oder Esc bringt die Ansicht zurück.</li>
         <li>Mit einem Boot aus der Werft kommen alle übers Wasser, auch zur Insel im See.</li>
       </ul></div>
       <div class="box"><h3>Stämme und Soldaten</h3><ul>
@@ -257,6 +264,9 @@ function showHelp(first) {
         <li>Jedes Lager hat einen Häuptling und Bogenschützen. Erst wenn der Häuptling gefallen ist, gehört dir das Lager.</li>
         <li>Erzmine, Köhlerei, Schmelze und Waffenschmiede machen Schwerter, der Bogenmacher Bögen. Die Kaserne bildet daraus mit freien Siedlern Schwertkämpfer und Bogenschützen aus.</li>
         <li>Bau die Kaserne aus, dann werden alle ihre Soldaten stärker. Die Ausbildung kostet dann aber mehr.</li>
+        <li>Der <b>Geschützbauer</b> baut auf Bestellung Katapulte. Im Fenster eines Stammes schickst du sie zur Belagerung los: Sie zerstören die Hütten aus der Ferne, jede kostet den Stamm Krieger. Das Lager stürmt heraus, um sie zu zerschlagen, also schick Soldaten mit.</li>
+        <li>Wachtürme lassen sich teuer zum Wehrturm und zum Bollwerk ausbauen. Dann schießen sie selbst auf Krieger in der Nähe, auch ohne Wache.</li>
+        <li>Angreifen kannst du ein Lager nur aus deinen Militärgebäuden in der Nähe: Kaserne bis ${ATTACK_RANGE.barracks}, Festung bis ${ATTACK_RANGE.fort}, Wachturm bis ${ATTACK_RANGE.tower} Felder entfernt. Schieb deine Grenze mit Wachtürmen an die Stämme heran. Mit dem Werkzeug Truppen steuerst du Soldaten aber überallhin.</li>
         <li>Soldaten verteidigen dein Land, Bogenschützen schießen auch von Wachtürmen. Klick auf ein Stammeslager, um es anzugreifen. Erobert gehört dir das Land ringsum.</li>
         <li>Eine ausgebaute Werft baut Langboote mit mehr Plätzen und Kriegsschiffe, die bei Angriffen von der Küste aus mitschießen.</li>
       </ul></div>
@@ -540,8 +550,8 @@ function describe(tx, ty) {
 /* ---------- Werkzeuge und Tempo ---------- */
 function setTool(t) {
   tool = t;
-  if (troopMode && t !== 'troops') { troopMode = false; R.free = false; sel.clear(); box = null; if (panelMode === 'troops') closePanel(); }
-  if (t === 'troops' && !troopMode) { troopMode = true; R.free = true; if (game) game.player.move = { x: 0, y: 0 }; panelMode = 'troops'; selected = null; renderPanel(); }
+  if (troopMode && t !== 'troops') { troopMode = false; R.free = look; sel.clear(); box = null; if (panelMode === 'troops') closePanel(); }
+  if (t === 'troops' && !troopMode) { troopMode = true; setLook(false); R.free = true; if (game) game.player.move = { x: 0, y: 0 }; panelMode = 'troops'; selected = null; renderPanel(); }
   if (t !== 'build') { buildType = null; ghost = null; if (panelMode === 'build') closePanel(); }
   document.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('sel', b.dataset.tool === t));
   if (t === 'build') openBuildMenu();
@@ -598,6 +608,11 @@ function renderPanel() {
         if (ins.some((k) => (game.stock[k] || 0) < r.in[k]) && ins.some((k) => (b.in[k] || 0) < r.in[k])) body += `<p>Im Lager fehlt ${ins.map((k) => ITEMS[k].name).join(' und ')}.</p>`;
       }
       if (b.type === 'farm') body += `<div class="row"><span>Felder</span><b>${b.fields.length} / ${game.fieldsOf(b)}</b></div>${game.season === 3 ? '<p>Im Winter ruht der Hof.</p>' : ''}`;
+      if (def.job) {   // Träger und Wege
+        const out = def.recipe ? [] : Object.keys(b.out || {}).filter((k) => b.out[k] > 0);
+        if (out.length) body += `<div class="row"><span>Abholbereit für Träger</span><span class="cost">${out.map((k) => chip(k, b.out[k])).join('')}</span></div>`;
+        body += `<div class="row"><span>Weg an der Tür</span><b>${game.roadLinked(b) ? 'ja, Träger sind schneller' : 'nein'}</b></div>`;
+      }
       if (b.type === 'house') body += `<div class="row"><span>Bewohner</span><b>${game.settlers.filter((s) => s.home === b.id).length} / ${game.bedsOf(b)}</b></div>`;
       if (b.type === 'barracks') {
         const mine = game.soldiers.filter((s) => s.home === b.id), lvl = b.level || 1, L = BARRACKS_LEVELS[lvl], ord = game.ordersOf(b);
@@ -625,17 +640,27 @@ function renderPanel() {
         const crew = game.soldiers.filter((s) => s.home === b.id);
         body += `<div class="row"><span>Wache</span><b>${crew.filter((s) => s.arrived).length} / ${def.garrison}</b></div>`;
         body += game.manned(b) ? '<p>Besetzt. Das Land ringsum gehört dir, und die Wache verteidigt es.</p>' : `<p>${crew.length ? 'Ein Soldat ist auf dem Weg hierher.' : 'Noch unbesetzt. Freie Soldaten aus einer Kaserne kommen von selbst.'}</p>`;
+        if (b.type === 'tower' && (b.level || 1) >= 2) { const L = TOWER_LEVELS[Math.min(3, b.level)]; body += `<div class="row"><span>Geschütz</span><b>Schaden ${String(L.atk).replace('.', ',')} alle ${String(L.cd).replace('.', ',')} s · ${String(L.range).replace('.', ',')} Felder</b></div><p>Schießt selbst auf jeden Krieger in Reichweite, auch ohne Wache.</p>`; }
       }
       if (b.type === 'shipyard') {
         const L = SHIPYARD_LEVELS[Math.min(3, b.level || 1)];
         body += `<div class="row"><span>Deine Flotte</span><b>${esc(game.fleetText())}</b></div><div class="row"><span>Plätze für Soldaten</span><b>${game.boatSeats()}</b></div><div class="row"><span>Bestellt: ${L.boats}</span><b>${b.orders || 0}</b></div>`;
         body += `<div class="actions"><button class="btn small" data-boat="1" type="button">${L.boat} bestellen</button>${b.orders ? '<button class="btn small" data-boat="0" type="button">Abbestellen</button>' : ''}</div><p>Ein ${L.boat} hat ${L.seats} Plätze${L.armed ? ' und ein Wurfgeschütz. Bei Angriffen auf Lager am Wasser schießen bis zu 2 Kriegsschiffe mit' : ''}. Mit Booten fahren alle übers Wasser.</p>`;
       }
+      if (b.type === 'siege') {
+        const out = (game.sieges || []).length;
+        body += `<div class="row"><span>${icon('catapult')} Deine Katapulte</span><b>${game.catapults || 0}${out ? ` (${out} unterwegs)` : ''}</b></div><div class="row"><span>Bestellt</span><b>${b.orders || 0}</b></div>`;
+        body += `<div class="actions"><button class="btn small" data-boat="1" type="button">Katapult bestellen</button>${b.orders ? '<button class="btn small" data-boat="0" type="button">Abbestellen</button>' : ''}</div><p>Ein Katapult rollt in Schussweite eines Lagers und beschießt seine Hütten. Jede eingestürzte Hütte kostet den Stamm ${CATAPULT.perHut} Krieger und Platz für ${CATAPULT.perHut} weitere. Losschicken kannst du es im Fenster eines Stammes.</p>`;
+      }
       const up = game.upgradeInfo(b);
       if (b.upgrading) body += `<div class="row"><span>Ausbau</span><b>${Math.round(b.upgrading.progress * 100)} %</b></div><div class="prog"><i style="width:${Math.round(b.upgrading.progress * 100)}%"></i></div><p>Freie Siedler bauen aus. Das Gebäude bleibt in Betrieb.</p>`;
       else if (up) body += `<div class="row"><span>Ausbau: ${esc(up.name)}</span><span class="cost">${costChips(up.cost, game)}</span></div><p>${esc(up.text)}.</p><div class="actions"><button class="btn small" data-act="upgrade" type="button" ${game.has(up.cost) ? '' : 'disabled'}>Ausbauen</button></div>`;
       if (b.type === 'hut') body += `<div class="actions"><button class="btn primary" data-act="sleep" type="button">Schlafen gehen (Tag beenden)</button></div>`;
       if (b.type === 'hut') body += `<div class="row"><span>Du säst</span><span class="stepper">${Object.keys(CROPS).map((k) => `<button class="btn small${game.seedKind === k ? ' on' : ''}" data-seed="${k}" type="button">${CROPS[k].name} · ${game.stock[CROPS[k].seed] || 0}</button>`).join('')}</span></div><div class="row"><span>Gießkanne</span><b>${game.water} / ${CAN_SIZE}</b></div>`;
+      if (b.type === 'storage') {
+        const hauling = game.settlers.filter((s) => s.haul).length, idle = game.settlers.filter((s) => s.job == null && s.recruit == null && !(s.task && s.task.site != null)).length;
+        body += `<div class="row"><span>Träger</span><b>${hauling} unterwegs · ${idle} ohne Arbeit</b></div><p>Siedler ohne Arbeitsplatz tragen Waren von den Gebäuden hierher und Zutaten in die Werkstätten. Auf gebauten Wegen sind sie viel schneller.</p>`;
+      }
       if (b.type === 'storage' || b.type === 'hut') {
         body += `<div class="row"><span>Vorräte</span><span></span></div><div class="cost" style="display:flex;flex-wrap:wrap;gap:4px">${[...STOCK_ORDER, 'seed_wheat', 'seed_carrot', 'seed_pumpkin'].map((k) => `<span class="chip" title="${ITEMS[k].name}">${icon(k)}${game.stock[k] || 0}</span>`).join('')}</div>
           <div class="actions"><button class="btn" data-act="eat" type="button">Etwas essen</button></div>`;
@@ -774,7 +799,7 @@ const power = (hp, atk, cd, ranged) => hp * atk / cd * (ranged ? 1.5 : 1);
 function renderTribe(p) {
   const t = game.tribes[selTribe];
   if (!t || t.defeated) { closePanel(); return; }
-  const att = game.attackers();
+  const att = game.attackers(t), sources = game.attackSources(t);
   const swords = att.filter((s) => s.type !== 'archer'), archers = att.filter((s) => s.type === 'archer');
   attackW.sword = Math.max(0, Math.min(attackW.sword, swords.length));
   attackW.archer = Math.max(0, Math.min(attackW.archer, archers.length));
@@ -797,7 +822,12 @@ function renderTribe(p) {
   body += `<div class="row"><span>Häuptling</span><b>${t.chiefDead ? 'gefallen' : 'lebt'}</b></div>`;
   if (raiding) body += `<div class="row"><span>Auf Raubzug</span><b>${raiding}</b></div>`;
   if (away) body += `<div class="row"><span>Angriff läuft</span><b>${away} ${away === 1 ? 'Soldat' : 'Soldaten'}</b></div><div class="actions"><button class="btn small" data-act="recall" type="button">Zurückrufen</button></div>`;
+  if (sources.length) {
+    const names = {}; for (const b of sources) { const n = game.levelName(b); names[n] = (names[n] || 0) + 1; }
+    body += `<div class="row"><span>Greifen an aus</span><b>${Object.keys(names).map((n) => names[n] > 1 ? `${names[n]} × ${esc(n)}` : esc(n)).join(', ')}</b></div>`;
+  }
   if (t.island && game.boats <= 0) body += '<p>Auf die Insel kommst du nur mit einem Boot. Bau eine Werft am Ufer und bestell eins.</p>';
+  else if (!sources.length) body += `<p>Kein eigenes Militärgebäude in Reichweite. Angreifen kannst du nur aus Gebäuden in der Nähe: Kaserne bis ${ATTACK_RANGE.barracks}, Festung bis ${ATTACK_RANGE.fort}, Wachturm bis ${ATTACK_RANGE.tower} Felder vom Lager. Bau einen Wachturm näher heran.</p>`;
   else if (att.length) {
     const row = (type, n) => `<div class="row"><span>${icon(UNITS[type].weapon)} ${UNITS[type].plural} (${n} frei)</span><span class="stepper"><button class="btn small" data-t="${type}" data-n="-1" type="button" aria-label="Weniger">−</button><b>${attackW[type]}</b><button class="btn small" data-t="${type}" data-n="1" type="button" aria-label="Mehr">+</button><button class="btn small" data-t="${type}" data-n="all" type="button">Alle</button></span></div>`;
     body += row('sword', swords.length) + row('archer', archers.length);
@@ -805,13 +835,19 @@ function renderTribe(p) {
     if (ships) body += `<p>${ships === 1 ? 'Ein Kriegsschiff schießt' : `${ships} Kriegsschiffe schießen`} vom Wasser aus mit.</p>`;
     const verdict = !total ? 'Das Lager ist ohne Verteidiger. Ein Soldat reicht.' : !pick.length ? 'Wähl Soldaten für den Angriff aus.' : mine >= theirs * 1.8 ? 'Das reicht sicher.' : mine >= theirs * 1.1 ? 'Das könnte knapp werden.' : 'Das reicht wohl nicht. Nimm mehr Soldaten mit oder bau die Kaserne aus.';
     body += `<p><b>${esc(verdict)}</b></p><div class="actions"><button class="btn primary" data-act="attack" type="button" ${pick.length ? '' : 'disabled'}>Angreifen mit ${pick.length}</button></div>`;
-  } else body += '<p>Keine freien Soldaten. Bilde in einer Kaserne welche aus. Jeder Wachturm und jede Festung behält eine Wache.</p>';
+  } else body += '<p>In den Gebäuden in Reichweite sind keine freien Soldaten. Bilde in einer Kaserne welche aus. Jeder Wachturm und jede Festung behält eine Wache.</p>';
+  if (!t.island && (game.catapults || 0) > 0) {   // Belagerung
+    const ready = game.catapults - (game.sieges || []).length, here = (game.sieges || []).filter((c) => c.campaign === selTribe).length;
+    body += `<div class="row"><span>${icon('catapult')} Katapulte bereit</span><b>${ready}${here ? ` · ${here} belagern` : ''}</b></div><div class="row"><span>Hütten im Lager</span><b>${t.huts.length}</b></div>`;
+    if (ready > 0 && sources.length && t.huts.length) body += `<div class="actions"><button class="btn small" data-act="siege" type="button">Belagern mit ${Math.min(ready, 3)} ${Math.min(ready, 3) === 1 ? 'Katapult' : 'Katapulten'}</button></div><p>Die Krieger stürmen heraus, um die Katapulte zu zerschlagen. Schick Soldaten zum Schutz mit.</p>`;
+  }
   if (!t.island) { const c = game.giftCost(t); body += `<div class="actions"><button class="btn small" data-act="gift" type="button" ${game.coins >= c ? '' : 'disabled'}>Geschenk schicken: ${c} Münzen, 8 Tage Frieden</button></div>`; }
   body += '<p>Erobert ist das Lager, wenn kein Krieger mehr steht und der Häuptling gefallen ist. Dann wird es deine Festung und das Land ringsum gehört dir.</p>';
   p.innerHTML = `<div class="head"><h2><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</h2><button class="x" data-close aria-label="Schließen">×</button></div>${body}`;
   const on = (sel, fn) => p.querySelectorAll(sel).forEach((el) => el.addEventListener('click', fn));
   on('[data-n]', (e) => { const type = e.currentTarget.dataset.t, v = e.currentTarget.dataset.n, max = type === 'archer' ? archers.length : swords.length; attackW[type] = v === 'all' ? max : Math.max(0, Math.min(max, attackW[type] + Number(v))); renderPanel(); });
   on('[data-act=attack]', () => { const err = game.attackTribe(selTribe, { sword: attackW.sword, archer: attackW.archer }); if (err) game.toast(err); renderPanel(); });
+  on('[data-act=siege]', () => { const err = game.siegeTribe(selTribe, 3); if (err) game.toast(err); renderPanel(); });
   on('[data-act=recall]', () => { const n = game.recall(selTribe); game.toast(`${n} ${n === 1 ? 'Soldat kehrt' : 'Soldaten kehren'} zurück.`); renderPanel(); });
   on('[data-act=gift]', () => { const err = game.sendGift(selTribe); if (err) game.toast(err); renderHud(); renderPanel(); });
   p.querySelector('[data-close]').addEventListener('click', closePanel);
@@ -868,19 +904,57 @@ function onKey(e) {
   const k = e.key.toLowerCase();
   if (modalOpen) { if (k === 'enter') { const b = $('card').querySelector('.btn.primary'); if (b) { e.preventDefault(); b.click(); } } return; }
   if (!game) return;
-  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { e.preventDefault(); keys.add(k); updateMove(); return; }
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { e.preventDefault(); keys.add(k); if (look) setLook(false); updateMove(); return; }
   if (k === 'e' && !troopMode) { const p = game.player, d = [[0, -1], [1, 0], [0, 1], [-1, 0]][p.facing || 2]; const r = game.interact(Math.floor(p.x) + d[0], Math.floor(p.y) + d[1], tool); if (r && r.open) openBuilding(r.open); else if (r && r.tribe != null) openTribe(r.tribe); else if (r && r.msg) game.toast(r.msg); return; }
   if (k === '1') setTool('hand');
   else if (k === 'b') setTool(tool === 'build' ? 'hand' : 'build');
   else if (k === 't') setTool(tool === 'troops' ? 'hand' : 'troops');
   else if (k === 'escape') {
+    if (look) { setLook(false); return; }
     if (troopMode) { if (sel.size) { sel.clear(); renderPanel(); } else setTool('hand'); return; }
     if (buildType) { buildType = null; ghost = null; renderPanel(); } else { if (panelMode === 'build') setTool('hand'); closePanel(); }
   }
   else if (k === ' ') { e.preventDefault(); setSpeed(speed === 0 ? 1 : 0); }
   else if (k === '+' || k === '=') zoom(1); else if (k === '-') zoom(-1);
 }
-function zoom(d) { const i = ZOOMS.indexOf(R.cam.zoom); R.cam.zoom = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 2 : i) + d))]; }
+function zoom(d, at) {
+  const i = ZOOMS.indexOf(R.cam.zoom), z = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 2 : i) + d))];
+  if (z === R.cam.zoom) return;
+  if (!at || !R.free || !Number.isFinite(at.x) || !Number.isFinite(at.y)) { R.cam.zoom = z; return; }
+  // in der freien Ansicht bleibt der Punkt unter dem Mauszeiger stehen
+  const mx = at.x - R.W / 2, my = at.y - R.H / 2, wx = R.cam.x + mx / R.S, wy = R.cam.y + my / R.S;
+  R.cam.zoom = z; R.cam.x = wx - mx / R.S; R.cam.y = wy - my / R.S;
+}
+// frei umschauen an/aus. Aus: die Ansicht gleitet zurück zu dir.
+function setLook(on) {
+  look = !!on && !troopMode;
+  R.free = troopMode || look;
+  $('backBtn').hidden = !look;
+  if (look) hint(LOOK_HINT); else if (!troopMode) hint(HINT0);
+}
+// was liegt ungefähr an dieser Stelle? (Zeiger über der Minikarte)
+function whatsThere(tx, ty) {
+  const w = game.world;
+  if (!w.inb(tx, ty)) return '';
+  if (!w.seen[w.i(tx, ty)]) return 'Unerkundet';
+  for (const t of game.tribes) if (!t.defeated && Math.hypot(t.cx - tx, t.cy - ty) <= 6 && w.seen[w.i(t.cx, t.cy)]) return `Lager der ${t.name}`;
+  let best = null, bd = 3.5;
+  for (const b of game.buildings) { const d = Math.hypot(b.x + b.w / 2 - tx, b.y + b.h / 2 - ty); if (d < bd) { bd = d; best = b; } }
+  if (best) return game.levelName(best);
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const x = tx + dx, y = ty + dy;
+    if (w.inb(x, y) && w.seen[w.i(x, y)] && w.obj[w.i(x, y)] && w.obj[w.i(x, y)].t === 'chest') return 'Schatztruhe';
+  }
+  const g = w.g(tx, ty), o = w.obj[w.i(tx, ty)];
+  if (g === G.WATER || g === G.DEEP) return 'Wasser';
+  if (g === G.MOUNTAIN) return 'Berge';
+  if (g === G.BRIDGE) return 'Brücke';
+  if (g === G.SAND) return 'Strand';
+  if (g === G.PATH || g === G.DIRT) return 'Weg';
+  if (g === G.SOIL) return 'Acker';
+  if (g === G.FOREST || (o && o.t === 'tree')) return 'Wald';
+  return g === G.MEADOW ? 'Wiese' : 'Grasland';
+}
 
 function soundIcon() {
   const b = $('soundBtn'); if (!b) return;
@@ -945,16 +1019,18 @@ function boot() {
   const cv = $('world');
   cv.addEventListener('pointermove', onPointerMove);
   let down = null;
+  const canPan = () => troopMode || tool === 'hand';   // beim Bauen bleibt Ziehen für die Vorschau
   cv.addEventListener('pointerdown', (e) => {
     down = { x: e.clientX, y: e.clientY, shift: e.shiftKey, cx: R.cam.x, cy: R.cam.y, drag: false };
-    if (troopMode && cv.setPointerCapture) try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
+    if (canPan() && cv.setPointerCapture) try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
   });
   cv.addEventListener('pointermove', (e) => {
-    if (!down || !troopMode) return;
+    if (!down || !canPan() || modalOpen) return;
     const dx = e.clientX - down.x, dy = e.clientY - down.y;
     if (!down.drag && Math.hypot(dx, dy) < 12) return;
+    if (!down.drag && !troopMode) { setLook(true); down.cx = R.cam.x; down.cy = R.cam.y; }   // Karte ziehen = umschauen
     down.drag = true;
-    if (down.shift) box = { x0: down.x, y0: down.y, x1: e.clientX, y1: e.clientY };
+    if (down.shift && troopMode) box = { x0: down.x, y0: down.y, x1: e.clientX, y1: e.clientY };
     else { R.cam.x = down.cx - dx / R.S; R.cam.y = down.cy - dy / R.S; }
   });
   cv.addEventListener('pointerup', (e) => {
@@ -963,7 +1039,25 @@ function boot() {
     down = null;
   });
   cv.addEventListener('pointerleave', () => { hover = null; if (buildType && !touchGhost) ghost = null; });
-  cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+  // Mausrad und Trackpad: höchstens eine Zoomstufe alle 0,22 s, sonst rauscht ein Wisch durch alle Stufen
+  let wheelT = 0;
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (Math.abs(e.deltaY) < 1 || now - wheelT < 220) return;
+    wheelT = now;
+    const r = cv.getBoundingClientRect();
+    zoom(e.deltaY < 0 ? 1 : -1, { x: e.clientX - r.left, y: e.clientY - r.top });
+  }, { passive: false });
+  // Safari: Zwei-Finger-Zoom auf dem Trackpad zoomt die Karte statt der ganzen Seite
+  let gScale = 1;
+  cv.addEventListener('gesturestart', (e) => { e.preventDefault(); gScale = 1; });
+  cv.addEventListener('gesturechange', (e) => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), at = { x: e.clientX - r.left, y: e.clientY - r.top };
+    if (e.scale / gScale > 1.25) { zoom(1, at); gScale = e.scale; } else if (e.scale / gScale < 0.8) { zoom(-1, at); gScale = e.scale; }
+  });
+  cv.addEventListener('gestureend', (e) => e.preventDefault());
   window.addEventListener('keydown', onKey);
   // Ton darf erst nach einer Berührung oder Taste starten
   const unlock = () => audio.unlock();
@@ -973,11 +1067,28 @@ function boot() {
   window.addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); updateMove(); });
   window.addEventListener('blur', () => { keys.clear(); updateMove(); });
   document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool === tool && (tool === 'build' || tool === 'troops') ? 'hand' : b.dataset.tool)));
-  $('mini').addEventListener('click', (e) => {   // im Truppen-Modus springt die Ansicht dorthin
-    if (!game || !troopMode) return;
-    const r = $('mini').getBoundingClientRect();
-    R.cam.x = (e.clientX - r.left) / r.width * game.world.w; R.cam.y = (e.clientY - r.top) / r.height * game.world.h;
+  // Minikarte: Klick oder Ziehen schaut dorthin; der Zeiger darüber verrät, was da liegt
+  const mini = $('mini');
+  let miniDown = false;
+  const miniTile = (e) => { const r = mini.getBoundingClientRect(); return { x: Math.max(0, Math.min(0.9999, (e.clientX - r.left) / r.width)) * game.world.w, y: Math.max(0, Math.min(0.9999, (e.clientY - r.top) / r.height)) * game.world.h }; };
+  mini.addEventListener('pointerdown', (e) => {
+    if (!game || modalOpen || !active) return;
+    e.preventDefault();
+    miniDown = true;
+    try { mini.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
+    if (!troopMode) setLook(true);
+    const p = miniTile(e); R.cam.x = p.x; R.cam.y = p.y;
   });
+  mini.addEventListener('pointermove', (e) => {
+    if (!game || modalOpen || !active) return;
+    const p = miniTile(e);
+    if (miniDown) { R.cam.x = p.x; R.cam.y = p.y; return; }
+    if (e.pointerType === 'mouse') hint(`Dort: ${whatsThere(Math.floor(p.x), Math.floor(p.y))}. Klick, um hinzuschauen.`);
+  });
+  const miniUp = () => { miniDown = false; };
+  mini.addEventListener('pointerup', miniUp); mini.addEventListener('pointercancel', miniUp);
+  mini.addEventListener('pointerleave', () => { if (!miniDown && !troopMode && game) hint(look ? LOOK_HINT : HINT0); });
+  $('backBtn').addEventListener('click', () => setLook(false));
   document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
   $('hEnergy').addEventListener('click', () => { if (game) { game.toast(game.eat()); audio.play('eat'); renderHud(); } });
   $('zoomIn').addEventListener('click', () => zoom(1));

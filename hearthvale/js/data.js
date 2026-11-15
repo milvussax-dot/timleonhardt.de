@@ -1,6 +1,6 @@
 // Spieldaten: Boden, Gegenstände, Pflanzen, Gebäude, Militär, Stämme, Ziele, Zeit
-export const MAP_W = 320;   // neue Täler; ältere Spielstände behalten ihre Größe
-export const MAP_H = 240;
+export const MAP_W = 480;   // neue Täler; ältere Spielstände behalten ihre Größe
+export const MAP_H = 360;
 export const TILE = 32;
 
 // Bodenarten
@@ -31,6 +31,7 @@ export const ITEMS = {
   iron:   { name: 'Eisen',    price: 14, color: '#b8c0cc' },
   sword:  { name: 'Schwerter', price: 30, color: '#dfe4ec' },
   bow:    { name: 'Bögen',     price: 16, color: '#b07a42' },
+  catapult: { name: 'Katapult', price: 150, color: '#8a5a30' },
   seed_wheat:   { name: 'Weizensaat',  price: 2,  color: '#cdb46a', seed: 'wheat' },
   seed_carrot:  { name: 'Karottensaat', price: 4, color: '#d9a06a', seed: 'carrot' },
   seed_pumpkin: { name: 'Kürbissaat',  price: 12, color: '#d98a4a', seed: 'pumpkin' },
@@ -65,6 +66,7 @@ export const BUILDINGS = {
   market:     { name: 'Markt',        w: 2, h: 2, cost: { plank: 12, stone: 8 }, build: 30, roof: '#b03a5a', desc: 'Kaufen und verkaufen. Überschüsse kann er jeden Abend automatisch verkaufen.' },
   barracks:   { name: 'Kaserne',      w: 2, h: 2, cost: { stone: 20, plank: 12 }, build: 45, roof: '#7a2a2a', desc: 'Bildet aus freien Siedlern Schwertkämpfer (mit Schwert) und Bogenschützen (mit Bogen) aus. Ausgebaut macht sie ihre Soldaten stärker. Soldaten wohnen hier und brauchen kein Bett.' },
   tower:      { name: 'Wachturm',     w: 2, h: 2, cost: { stone: 14, plank: 6 }, build: 35, garrison: 2, roof: '#5a5a6a', desc: 'Vergrößert dein Land, sobald ein Soldat darin Wache hält, und sieht weit ins Tal.' },
+  siege:      { name: 'Geschützbauer', w: 2, h: 2, cost: { plank: 15, stone: 12, iron: 4 }, build: 40, job: 'process', recipe: { in: { plank: 12, iron: 4, stone: 6 }, out: { catapult: 1 }, time: 30 }, roof: '#7a5a3a', hat: '#5a3a20', desc: 'Baut auf Bestellung Katapulte. Mit ihnen belagerst du Lager und zerstörst ihre Hütten aus der Ferne.' },
   shipyard:   { name: 'Werft',        w: 2, h: 2, cost: { wood: 15, plank: 8 }, build: 35, job: 'process', recipe: { in: { plank: 12 }, out: { boat: 1 }, time: 30 }, nearWater: 3, roof: '#3f6f9a', hat: '#2f5a80', desc: 'Baut auf Bestellung Boote. Mit Booten kommen du, deine Siedler und Soldaten übers Wasser, auch zur Insel. Ausgebaut baut sie Langboote und Kriegsschiffe.' },
   fort:       { name: 'Eroberte Festung', w: 3, h: 3, cost: null, garrison: 3, roof: '#8d5a3b', desc: 'Ein erobertes Stammeslager. Es sichert dir das Land ringsum.' },
   path:       { name: 'Weg',          w: 1, h: 1, cost: { stone: 1 }, build: 0, desc: 'Auf Wegen laufen alle schneller.' },
@@ -75,7 +77,7 @@ export const BUILD_GROUPS = [
   ['Rohstoffe', ['woodcutter', 'forester', 'quarry', 'mine']],
   ['Nahrung', ['field', 'fisher', 'farm', 'mill', 'bakery']],
   ['Handwerk & Handel', ['sawmill', 'charcoal', 'smelter', 'smithy', 'bowyer', 'market']],
-  ['Militär & Wasser', ['barracks', 'tower', 'shipyard']],
+  ['Militär & Wasser', ['barracks', 'tower', 'siege', 'shipyard']],
 ];
 export const BUILD_MENU = BUILD_GROUPS.flatMap((g) => g[1]);
 
@@ -98,6 +100,17 @@ export const UNITS = {
 };
 export const TRAIN_TIME = 12;
 // Kaserne: jede Stufe macht ihre Soldaten stärker, die Ausbildung kostet dann aber mehr
+// Angriff auf ein Lager: Soldaten kommen nur aus eigenen Militärgebäuden in dieser Entfernung (Felder bis zur Lagermitte)
+export const ATTACK_RANGE = { barracks: 60, fort: 50, tower: 40 };
+// Wachturm-Ausbau: sehr teuer, dafür schießt der Turm selbst auf Krieger in Reichweite, auch ohne Wache
+export const TOWER_LEVELS = [
+  null,
+  { name: 'Wachturm' },
+  { name: 'Wehrturm', cost: { stone: 60, plank: 30, iron: 12 }, build: 60, range: 7, atk: 4, cd: 1.6 },
+  { name: 'Bollwerk', cost: { stone: 120, plank: 60, iron: 30, sword: 4 }, build: 90, range: 8.5, atk: 6.5, cd: 1.1 },
+];
+// Katapult: rollt langsam, schießt Steine auf die Hütten eines Lagers; jede zerstörte Hütte kostet den Stamm Krieger
+export const CATAPULT = { hp: 40, range: 11, cd: 5, speed: 1.6, hutHp: 3, splash: 7, perHut: 2 };
 export const BARRACKS_LEVELS = [
   null,
   { name: 'Kaserne', cap: 8, hp: 0, atk: 0, extra: {} },
@@ -122,6 +135,10 @@ export const TRIBES = [
   { key: 'aschenwoelfe', name: 'Aschenwölfe',  color: '#7a8290', atk: 3.1, hp: 14, start: 18, grow: 1.4 },
   { key: 'lehmfaeuste',  name: 'Lehmfäuste',   color: '#9a6234', atk: 2.7, hp: 16, start: 19, grow: 1.2 },
   { key: 'nachtlaeufer', name: 'Nachtläufer',  color: '#3a4a8a', atk: 3.2, hp: 13, start: 18, grow: 1.4 },
+  { key: 'eichenwaechter', name: 'Eichenwächter', color: '#4f8a3c', atk: 2.8, hp: 16, start: 19, grow: 1.2 },
+  { key: 'frostfelle',   name: 'Frostfelle',   color: '#8ec9e6', atk: 3.0, hp: 15, start: 18, grow: 1.3 },
+  { key: 'gruenspechte', name: 'Grünspechte',  color: '#a8c43a', atk: 3.1, hp: 14, start: 18, grow: 1.3 },
+  { key: 'schattenluchse', name: 'Schattenluchse', color: '#2e2e38', atk: 3.3, hp: 13, start: 17, grow: 1.4 },
   { key: 'nebelfischer', name: 'Nebelfischer', color: '#2f9fbf', atk: 2.6, hp: 13, start: 16, grow: 1.0 },
 ];
 export const FOE = { raidSpeed: 2.8, archerShare: 0.3, archerRange: 4, chiefHp: 70, chiefHpTier: 25, chiefAtk: 5, chiefAtkTier: 1.2 };
@@ -144,7 +161,7 @@ export const QUESTS = [
   { id: 'townhouse', text: 'Bau ein Stadthaus', reward: 100 },
   { id: 'warship',   text: 'Bau ein Kriegsschiff', reward: 80 },
   { id: 'explore60', text: 'Erkunde ein Drittel des Tals', reward: 150 },
-  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 1000 },
+  { id: 'allTribes', text: 'Besiege alle Stämme', reward: 2500 },
 ];
 
 // Energie und Dauer der eigenen Aktionen (Sekunden bei 1×)
@@ -161,6 +178,8 @@ export const ACTIONS = {
 };
 export const MAX_ENERGY = 100, CAN_SIZE = 20;
 export const SETTLER_SPEED = 2.3, PLAYER_SPEED = 4.2, PATH_BONUS = 1.6;
+// Träger: so viel Ware auf einmal, so viel schneller auf gebauten Wegen; ab so viel Ware am Gebäude trägt der Arbeiter selbst
+export const CARRY_MAX = 6, CARRIER_ROAD = 1.35, OUT_MAX = 12;
 export const WORK_TIME = { chop: 4, mine: 5, ore: 7, fish: 11, plant: 3, till: 2.5, sow: 2, water: 1.5, harvest: 2 };
 
 export const START_STOCK = { wood: 30, stone: 15, berry: 10, bread: 4, seed_wheat: 10, seed_carrot: 6 };

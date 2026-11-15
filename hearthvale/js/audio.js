@@ -11,7 +11,7 @@ const MOODS = {
   battle: { bpm: 118, chords: [[50, 53, 57], [48, 52, 55], [46, 50, 53], [48, 52, 55]], scale: [62, 64, 65, 67, 69, 72, 74], lead: 'sawtooth', density: 0.55, cut: 1400, drums: true },
 };
 // wie oft dasselbe Geräusch höchstens kommt (Sekunden)
-const GAP = { clash: 0.09, arrow: 0.1, hammer: 0.2, chop: 0.08, mine: 0.08, die: 0.15, splash: 0.2, harvest: 0.06 };
+const GAP = { clash: 0.09, arrow: 0.1, hammer: 0.2, chop: 0.08, mine: 0.08, die: 0.15, splash: 0.2, harvest: 0.06, catapult: 0.3, crash: 0.3 };
 
 export class Sound {
   constructor() {
@@ -104,6 +104,8 @@ export class Sound {
       case 'build': [0, 4, 7].forEach((s, i) => this.tone(B, { f: NOTE(72 + s), t: i * 0.09, d: 0.6, v: 0.16 * v, type: 'triangle' })); break;
       case 'quest': [0, 4, 7, 12, 16].forEach((s, i) => this.tone(B, { f: NOTE(67 + s), t: i * 0.1, d: i === 4 ? 0.9 : 0.25, v: 0.18 * v, type: 'triangle' })); break;
       case 'raid': [[50, 0], [57, 0.45], [50, 0.9]].forEach(([m, t]) => this.tone(B, { f: NOTE(m), t, a: 0.08, d: 0.45, v: 0.25 * v, type: 'sawtooth', vib: 3, filter: { type: 'lowpass', f: 900 } })); break;
+      case 'catapult': this.tone(B, { f: 150, f2: 55, d: 0.3, v: 0.4 * v, pan }); this.hit(B, { d: 0.14, v: 0.3 * v, type: 'lowpass', f: 700, pan }); break;
+      case 'crash': this.hit(B, { d: 0.55, v: 0.45 * v, type: 'lowpass', f: 900, f2: 180, pan }); this.tone(B, { f: 95, f2: 40, d: 0.45, v: 0.3 * v, pan }); break;
       case 'clash': this.hit(B, { d: 0.07, v: 0.32 * v, type: 'highpass', f: 2500, pan }); this.tone(B, { f: 1900 + Math.random() * 500, type: 'square', d: 0.07, v: 0.05 * v, pan, filter: { type: 'bandpass', f: 2400, q: 6 } }); break;
       case 'arrow': this.hit(B, { d: 0.18, v: 0.2 * v, f: 3200, f2: 900, q: 3, pan }); break;
       case 'die': this.tone(B, { f: 230, f2: 80, type: 'triangle', d: 0.35, v: 0.2 * v, pan }); break;
