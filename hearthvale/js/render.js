@@ -1,6 +1,6 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY, CAMP_BUILD } from './data.js?v=18';
-import { cellRand } from './world.js?v=18';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY, CAMP_BUILD } from './data.js?v=19';
+import { cellRand } from './world.js?v=19';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -686,8 +686,10 @@ export class Renderer {
         }
         this.person(g, s, S, { shirt: archer ? '#3f6f3a' : '#3a5f9a', helmet: !archer, hood: archer ? '#2f5a2c' : null, crest, shield: !archer && drill >= 2 ? crest : null, weapon: archer ? 'bow' : 'sword', swing: s.swing > 0 ? s.swing : 0, rank: s.rank, hp: s.hp / game.maxHp(s), hurt: s.hurtT > 0, ox: (cellRand(s.id, 1, 5) - 0.5) * 0.35, oy: (cellRand(s.id, 2, 5) - 0.5) * 0.25, boat: w.isWater(Math.floor(s.x), Math.floor(s.y)), t });
       } else if (d.k === 'ship') {
-        const sh = d.sh;
-        this.warship(g, ox + sh.x * S, oy + sh.y * S, S, sh.facing, t, sh.swing || 0);
+        const sh = d.sh, X = ox + sh.x * S, Y = oy + sh.y * S;
+        if (ui.sel && ui.sel.has(sh.id)) { g.strokeStyle = '#ffd25a'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(X, Y + S * 0.1, S * 0.75, S * 0.24, 0, 0, 7); g.stroke(); }
+        this.warship(g, X, Y, S, sh.facing, t, sh.swing || 0);
+        if (sh.hp < sh.maxHp) { const w2 = S * 0.8; g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(X - w2 / 2, Y - S * 1.15, w2, 4); g.fillStyle = sh.hurtT > 0 ? '#fff' : '#e0b34a'; g.fillRect(X - w2 / 2, Y - S * 1.15, w2 * Math.max(0, sh.hp / sh.maxHp), 4); }
       } else if (d.k === 'f' && d.f.mode === 'thief') {   // Dieb eines Stammes: dunkler Umhang, Kapuze in Stammesfarbe
         const f = d.f, tr = game.tribes[f.tribe];
         this.person(g, f, S, { shirt: '#34343c', hood: shade(tr.color, -0.25), sack: !!(f.loot || f.coinsStolen), hp: f.hp / f.maxHp, hurt: f.hurtT > 0, t });
@@ -706,7 +708,10 @@ export class Renderer {
         this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: f.type === 'bow' ? 'bow' : 'spear', big: f.type === 'chief', crown: f.type === 'chief' ? tr.color : null, swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
       } else if (d.k === 'hall') this.hall(g, d.tr, ox + d.tr.hall.x * S, oy + d.tr.hall.y * S, S, t, season);
       else if (d.k === 'tent') { this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season); if (d.h.hp != null && d.h.hp < 3) this.tentDamage(g, ox + d.h.x * S, oy + d.h.y * S, S, d.h.hp); }
-      else if (d.k === 'cat') { if (d.c.kind === 'ram') this.ram(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c); else this.catapult(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c); }
+      else if (d.k === 'cat') {
+        if (ui.sel && ui.sel.has(d.c.id)) { g.strokeStyle = '#ffd25a'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(ox + d.c.x * S, oy + (d.c.y + 0.12) * S, S * 0.55, S * 0.18, 0, 0, 7); g.stroke(); }
+        if (d.c.kind === 'ram') this.ram(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c); else this.catapult(g, ox + d.c.x * S, oy + d.c.y * S, S, d.c);
+      }
       else if (d.k === 'fire') this.fire(g, ox + d.x * S, oy + d.fy * S, S, t);
       else if (d.k === 'idle') { d.e.walkT = 0; this.person(g, d.e, S * 0.9, { shirt: d.tr.color, band: shade(d.tr.color, -0.3), weapon: 'spear', t }); }
     }
@@ -766,7 +771,7 @@ export class Renderer {
   // kleine Fähnchen an den Plätzen, die ausgewählte Soldaten halten sollen
   posts(g, game, sel, ox, oy, S, t) {
     const done = new Set();
-    for (const s of game.soldiers) {
+    for (const s of [...game.soldiers, ...(game.sieges || []), ...(game.ships || [])]) {
       if (!sel.has(s.id) || !s.post) continue;
       const k = s.post.y * 4096 + s.post.x;
       if (done.has(k)) continue;

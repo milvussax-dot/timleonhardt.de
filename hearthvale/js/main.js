@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=18';
-import { Renderer } from './render.js?v=18';
-import { cellRand } from './world.js?v=18';
-import { Sound } from './audio.js?v=18';
-import { FIRST_RAID } from './realm.js?v=18';
+import { Game } from './sim.js?v=19';
+import { Renderer } from './render.js?v=19';
+import { cellRand } from './world.js?v=19';
+import { Sound } from './audio.js?v=19';
+import { FIRST_RAID } from './realm.js?v=19';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=18';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=19';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -270,6 +270,7 @@ function showHelp(first) {
         <li>Die Dörfer der Stämme haben Häuser, Wachtürme, die auf deine Truppen schießen, und ein Waffenlager, das ihre Krieger stärker macht.</li>
         <li>Im <b>Diebesversteck</b> bildest du Diebe aus. Sie stehlen in fremden Lagern Waffen, Münzen und Vorräte. Aber auch die Stämme schicken Diebe zu dir, und deine Soldaten und Türme können sie fangen.</li>
         <li>Der <b>Geschützbauer</b> baut auf Bestellung auch gepanzerte Rammböcke, die Türme und Häuser aus nächster Nähe zerschlagen.</li>
+        <li>Katapulte, Rammböcke und Kriegsschiffe steuerst du wie Soldaten mit dem Werkzeug <b>Truppen</b>: auswählen, auf die Karte tippen zum Hinschicken, auf ein Lager oder einen Turm tippen zum Angreifen.</li>
         <li>Der <b>Geschützbauer</b> baut auf Bestellung Katapulte. Im Fenster eines Stammes schickst du sie zur Belagerung los: Sie zerstören die Hütten aus der Ferne, jede kostet den Stamm Krieger. Das Lager stürmt heraus, um sie zu zerschlagen, also schick Soldaten mit.</li>
         <li>Wachtürme lassen sich teuer zum Wehrturm und zum Bollwerk ausbauen. Dann schießen sie selbst auf Krieger in der Nähe, auch ohne Wache.</li>
         <li>Angreifen kannst du ein Lager nur aus deinen Militärgebäuden in der Nähe: Kaserne bis ${ATTACK_RANGE.barracks}, Festung bis ${ATTACK_RANGE.fort}, Wachturm bis ${ATTACK_RANGE.tower} Felder entfernt. Schieb deine Grenze mit Wachtürmen an die Stämme heran. Mit dem Werkzeug Truppen steuerst du Soldaten aber überallhin.</li>
@@ -650,11 +651,12 @@ function renderPanel() {
       }
       if (b.type === 'shipyard') {
         const L = SHIPYARD_LEVELS[Math.min(3, b.level || 1)];
+        if ((game.ships || []).length) { const away = game.ships.filter((s) => s.state !== 'dock').length; body += `<div class="row"><span>${icon('boat')} Kriegsschiffe</span><b>${game.ships.length}${away ? ` (${away} unterwegs)` : ''}</b></div><p>Kriegsschiffe steuerst du mit dem Werkzeug Truppen. Sie schießen auf jeden Krieger in Reichweite, auch vor deiner Küste.</p>`; }
         body += `<div class="row"><span>Deine Flotte</span><b>${esc(game.fleetText())}</b></div><div class="row"><span>Plätze für Soldaten</span><b>${game.boatSeats()}</b></div><div class="row"><span>Bestellt: ${L.boats}</span><b>${b.orders || 0}</b></div>`;
         body += `<div class="actions"><button class="btn small" data-boat="1" type="button">${L.boat} bestellen</button>${b.orders ? '<button class="btn small" data-boat="0" type="button">Abbestellen</button>' : ''}</div><p>Ein ${L.boat} hat ${L.seats} Plätze${L.armed ? ' und ein Wurfgeschütz. Bei Angriffen auf Lager am Wasser schießen bis zu 2 Kriegsschiffe mit' : ''}. Mit Booten fahren alle übers Wasser.</p>`;
       }
       if (b.type === 'siege') {
-        const out = (k) => (game.sieges || []).filter((c) => c.kind === k).length;
+        const out = (k) => (game.sieges || []).filter((c) => c.kind === k && c.state !== 'park').length;
         body += `<div class="row"><span>${icon('catapult')} Katapulte</span><b>${game.catapults || 0}${out('catapult') ? ` (${out('catapult')} unterwegs)` : ''} · bestellt ${b.orders || 0}</b></div>`;
         body += `<div class="row"><span>${icon('ram')} Rammböcke</span><b>${game.rams || 0}${out('ram') ? ` (${out('ram')} unterwegs)` : ''} · bestellt ${b.ramOrders || 0}</b></div>`;
         body += `<div class="row"><span>Ein Rammbock braucht</span><span class="cost">${costChips(RAM_RECIPE.in, game)}</span></div>`;
@@ -726,10 +728,29 @@ function renderPanel() {
   p.querySelector('[data-close]').addEventListener('click', () => { if (panelMode === 'build') setTool('hand'); closePanel(); });
 }
 /* ---------- Truppen steuern ---------- */
+const VNAME = { catapult: 'Katapult', ram: 'Rammbock', ship: 'Kriegsschiff' }, VNAMES = { catapult: 'Katapulte', ram: 'Rammböcke', ship: 'Kriegsschiffe' };
+const allVehicles = () => [...(game.sieges || []), ...(game.ships || [])];
+const vehicleById = (id) => allVehicles().find((v) => v.id === id);
 function selList() {
   const out = [];
-  for (const id of [...sel]) { const s = game.soldiers.find((x) => x.id === id); if (s && s.state !== 'garrison') out.push(s); else sel.delete(id); }
+  for (const id of [...sel]) {
+    const s = game.soldiers.find((x) => x.id === id);
+    if (s && s.state !== 'garrison') out.push(s);
+    else if (s || !vehicleById(id)) sel.delete(id);
+  }
   return out;
+}
+// ausgewählte Katapulte, Rammböcke und Kriegsschiffe
+function selVehicles() { return allVehicles().filter((v) => sel.has(v.id)); }
+function pickVehicle(fx, fy) {
+  let best = null, bd = 0.8;
+  for (const v of allVehicles()) { const d = Math.hypot(v.x - fx, v.y - 0.3 - fy); if (d < bd) { bd = d; best = v; } }
+  return best;
+}
+// Gebäude eines Lagers unter dem Zeiger (Turm, Haus, Hütte); die Halle heißt: das ganze Lager
+function structureAt(ti, x, y) {
+  const t = game.tribes[ti];
+  return game.campTargets(t).find((s) => x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h) || null;
 }
 // Soldat oder Krieger unter dem Zeiger (mit demselben Versatz wie beim Zeichnen)
 function pickUnit(list, fx, fy, salt) {
@@ -743,40 +764,50 @@ function pickUnit(list, fx, fy, salt) {
 }
 const visibleSoldiers = () => game.soldiers.filter((s) => s.state !== 'garrison');
 function troopHint(t) {
+  const v = pickVehicle(t.fx, t.fy);
+  if (v) return `${VNAME[v.kind]} · Leben ${Math.ceil(v.hp)}/${v.maxHp} · ${sel.has(v.id) ? 'ausgewählt, tippen zum Abwählen' : 'tippen zum Auswählen'}`;
   const s = pickUnit(visibleSoldiers(), t.fx, t.fy, 5);
   if (s) return `${UNITS[s.type || 'sword'].name} · Leben ${Math.ceil(s.hp)}/${Math.round(game.maxHp(s))}${s.rank ? ` · Rang ${s.rank}` : ''} · ${sel.has(s.id) ? 'ausgewählt, tippen zum Abwählen' : 'tippen zum Auswählen'}`;
-  if (!sel.size) return 'Tipp auf Soldaten, um sie auszuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.';
+  if (!sel.size) return 'Tipp auf Soldaten oder Fahrzeuge, um sie auszuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.';
   const f = pickUnit(game.foes, t.fx, t.fy, 6);
   if (f) return `Angreifen: Krieger der ${game.tribes[f.tribe].name}`;
   const w = game.world;
   if (!w.inb(t.x, t.y)) return '';
   const k = w.i(t.x, t.y);
-  if (w.tstruct[k] >= 0 && w.seen[k]) return `Lager der ${game.tribes[w.tstruct[k]].name} angreifen`;
+  if (w.tstruct[k] >= 0 && w.seen[k]) {
+    const st = selVehicles().length ? structureAt(w.tstruct[k], t.x, t.y) : null, nm = game.tribes[w.tstruct[k]].name;
+    return st ? `${st.kind === 'tower' ? 'Wachturm' : st.kind === 'house' ? 'Haus' : 'Hütte'} der ${nm} angreifen` : `Lager der ${nm} angreifen`;
+  }
   return `${sel.size === 1 ? 'Hierhin schicken' : `${sel.size} hierhin schicken`} und die Stellung halten`;
 }
 function troopTap(e) {
   const t = R.screenToTile(e.clientX, e.clientY), now = performance.now() / 1000;
+  const hv = pickVehicle(t.fx, t.fy);
+  if (hv) { if (sel.has(hv.id)) sel.delete(hv.id); else sel.add(hv.id); renderPanel(); hint(troopHint(t)); return; }
   const hit = pickUnit(visibleSoldiers(), t.fx, t.fy, 5);
   if (hit) { if (sel.has(hit.id)) sel.delete(hit.id); else sel.add(hit.id); renderPanel(); hint(troopHint(t)); return; }
-  const list = selList();
-  if (!list.length) { hint('Tipp zuerst auf Soldaten, um sie auszuwählen.'); return; }
+  const list = selList(), vl = selVehicles(), n = list.length + vl.length;
+  if (!n) { hint('Tipp zuerst auf Soldaten oder Fahrzeuge, um sie auszuwählen.'); return; }
   const foe = pickUnit(game.foes, t.fx, t.fy, 6);
   if (foe) {
-    game.orderAttackFoe(list, foe);
+    if (list.length) game.orderAttackFoe(list, foe);
+    if (vl.length) game.orderVehicleAttackFoe(vl, foe);
     ping = { x: Math.floor(foe.x), y: Math.floor(foe.y), t: now, attack: true };
-    game.toast(list.length === 1 ? 'Dein Soldat greift an.' : `${list.length} Soldaten greifen an.`);
+    game.toast(n === 1 ? 'Angriff auf den Krieger.' : `${n} greifen den Krieger an.`);
     renderPanel(); return;
   }
   const w = game.world;
   if (!w.inb(t.x, t.y)) return;
   const k = w.i(t.x, t.y);
   if (w.tstruct[k] >= 0 && w.seen[k]) {
-    const err = game.attackTribe(w.tstruct[k], null, list);
-    if (err) game.toast(err); else ping = { x: t.x, y: t.y, t: now, attack: true };
+    const ti = w.tstruct[k];
+    if (list.length) { const err = game.attackTribe(ti, null, list); if (err) game.toast(err); }
+    if (vl.length) { const st = structureAt(ti, t.x, t.y); game.orderVehicleAttack(vl, ti, st); game.toast(`${vl.length === 1 ? VNAME[vl[0].kind] : `${vl.length} Fahrzeuge`} gegen ${st ? (st.kind === 'tower' ? 'den Wachturm' : st.kind === 'house' ? 'das Haus' : 'die Hütte') : 'das Lager'} der ${game.tribes[ti].name}.`); }
+    ping = { x: t.x, y: t.y, t: now, attack: true };
     renderPanel(); return;
   }
-  const err = game.orderMove(list, t.x, t.y);
-  if (err) { game.toast(err); return; }
+  if (list.length) { const err = game.orderMove(list, t.x, t.y); if (err) game.toast(err); }
+  if (vl.length) { const moved = game.orderVehicleMove(vl, t.x, t.y); if (moved < vl.length && vl.some((v) => v.kind === 'ship')) game.toast('Kriegsschiffe fahren nur übers Wasser. Tipp näher ans Wasser.'); }
   ping = { x: t.x, y: t.y, t: now };
   renderPanel();
 }
@@ -787,28 +818,34 @@ function selectBox(b) {
     const ux = s.x + (cellRand(s.id, 1, 5) - 0.5) * 0.35, uy = s.y + (cellRand(s.id, 2, 5) - 0.5) * 0.25 - 0.3;
     if (ux >= a.fx - 0.3 && ux <= c.fx + 0.3 && uy >= a.fy - 0.4 && uy <= c.fy + 0.4) sel.add(s.id);
   }
+  for (const v of allVehicles()) if (v.x >= a.fx - 0.4 && v.x <= c.fx + 0.4 && v.y - 0.3 >= a.fy - 0.5 && v.y - 0.3 <= c.fy + 0.5) sel.add(v.id);
   renderPanel();
 }
 function renderTroopPanel(p) {
-  const list = selList(), ar = list.filter((s) => s.type === 'archer').length, sw = list.length - ar, all = visibleSoldiers();
-  const count = (fn) => list.filter(fn).length;
-  const states = [['halten Stellung', count((s) => s.state === 'hold')], ['unterwegs', count((s) => ['move', 'march', 'return', 'toGarrison'].includes(s.state))], ['kämpfen', count((s) => s.state === 'fight')], ['in der Kaserne', count((s) => s.state === 'home')]].filter((x) => x[1]);
+  const list = selList(), vl = selVehicles(), ar = list.filter((s) => s.type === 'archer').length, sw = list.length - ar, all = visibleSoldiers(), allV = allVehicles();
+  const nV = (k) => vl.filter((v) => v.kind === k).length, hasV = (k) => allV.some((v) => v.kind === k);
+  const count = (fn) => list.filter(fn).length + vl.filter(fn).length;
+  const states = [['halten Stellung', count((s) => s.state === 'hold')], ['unterwegs', count((s) => ['move', 'march', 'return', 'toGarrison', 'roll', 'sail', 'attack'].includes(s.state))], ['kämpfen', count((s) => ['fight', 'fire', 'ram', 'hunt'].includes(s.state))], ['zu Hause', count((s) => ['home', 'park', 'dock'].includes(s.state))]].filter((x) => x[1]);
   let body = '';
-  if (list.length) body += `<p class="selsum">${sw} Schwertkämpfer · ${ar} Bogenschützen ausgewählt</p><div class="troopbox">${[['sword', sw], ['archer', ar]].map(([type, n]) => `<div class="tb"><span class="tbicon">${icon(UNITS[type].weapon)}</span><span class="tbname">${UNITS[type].plural}</span><b class="tbn">${n}</b><span class="tbstat">ausgewählt</span></div>`).join('')}</div>${states.length ? `<p>${states.map(([txt, n]) => `${n} ${txt}`).join(' · ')}</p>` : ''}`;
-  else body += `<p>${all.length ? 'Noch niemand ausgewählt.' : 'Du hast noch keine Soldaten. Bilde in der Kaserne welche aus.'}</p>`;
-  if (all.length) body += `<div class="actions"><button class="btn small" data-pick="all" type="button">Alle (${all.length})</button><button class="btn small" data-pick="sword" type="button">${icon('sword')} Schwertkämpfer</button><button class="btn small" data-pick="archer" type="button">${icon('bow')} Bogenschützen</button>${list.length ? '<button class="btn small" data-pick="none" type="button">Keine</button>' : ''}</div>`;
-  if (list.length) body += '<div class="actions"><button class="btn small" data-act="find" type="button">Zu ihnen springen</button><button class="btn small" data-act="release" type="button">Zurück nach Hause</button></div>';
-  body += '<ul class="tips"><li>Tipp auf Soldaten, um sie aus- oder abzuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.</li><li>Dann tipp auf die Karte: Sie gehen hin und halten dort die Stellung, auch gegen Überfälle.</li><li>Tipp auf einen Krieger oder ein Stammeslager: Angriff.</li><li>Ziehen oder WASD verschiebt die Ansicht, die Minikarte springt hin. Esc oder die Hand beendet das Steuern.</li></ul>';
+  if (list.length || vl.length) {
+    const parts = [sw ? `${sw} Schwertkämpfer` : '', ar ? `${ar} Bogenschützen` : '', ...['catapult', 'ram', 'ship'].map((k) => nV(k) ? `${nV(k)} ${nV(k) === 1 ? VNAME[k] : VNAMES[k]}` : '')].filter(Boolean);
+    const boxes = [['sword', sw, UNITS.sword.weapon, UNITS.sword.plural], ['archer', ar, UNITS.archer.weapon, UNITS.archer.plural], ...['catapult', 'ram', 'ship'].filter(hasV).map((k) => [k, nV(k), k === 'ship' ? 'boat' : k, VNAMES[k]])];
+    body += `<p class="selsum">${parts.join(' · ')} ausgewählt</p><div class="troopbox">${boxes.map(([, n, ic, name]) => `<div class="tb"><span class="tbicon">${icon(ic)}</span><span class="tbname">${name}</span><b class="tbn">${n}</b><span class="tbstat">ausgewählt</span></div>`).join('')}</div>${states.length ? `<p>${states.map(([txt, n]) => `${n} ${txt}`).join(' · ')}</p>` : ''}`;
+  } else body += `<p>${all.length || allV.length ? 'Noch nichts ausgewählt.' : 'Du hast noch keine Soldaten. Bilde in der Kaserne welche aus.'}</p>`;
+  if (all.length || allV.length) body += `<div class="actions"><button class="btn small" data-pick="all" type="button">Alle (${all.length + allV.length})</button>${all.length ? `<button class="btn small" data-pick="sword" type="button">${icon('sword')} Schwertkämpfer</button><button class="btn small" data-pick="archer" type="button">${icon('bow')} Bogenschützen</button>` : ''}${['catapult', 'ram', 'ship'].filter(hasV).map((k) => `<button class="btn small" data-pick="${k}" type="button">${icon(k === 'ship' ? 'boat' : k)} ${VNAMES[k]}</button>`).join('')}${list.length || vl.length ? '<button class="btn small" data-pick="none" type="button">Keine</button>' : ''}</div>`;
+  if (list.length || vl.length) body += '<div class="actions"><button class="btn small" data-act="find" type="button">Zu ihnen springen</button><button class="btn small" data-act="release" type="button">Zurück nach Hause</button></div>';
+  body += '<ul class="tips"><li>Tipp auf Soldaten, Katapulte, Rammböcke oder Kriegsschiffe, um sie aus- oder abzuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.</li><li>Dann tipp auf die Karte: Sie gehen oder segeln hin und halten dort die Stellung. Katapulte und Schiffe schießen dann auf alles in Reichweite.</li><li>Tipp auf ein Lager oder gezielt auf einen Turm, ein Haus oder eine Hütte: Angriff. Tipp auf einen Krieger: Katapulte und Schiffe schießen auf ihn.</li><li>Ziehen oder WASD verschiebt die Ansicht, die Minikarte springt hin. Esc oder die Hand beendet das Steuern.</li></ul>';
   p.innerHTML = `<div class="head"><h2>Truppen steuern</h2><button class="x" data-close aria-label="Schließen">×</button></div>${body}`;
   const on = (q, fn) => p.querySelectorAll(q).forEach((el) => el.addEventListener('click', fn));
   on('[data-pick]', (e) => {
     const k = e.currentTarget.dataset.pick;
     sel.clear();
-    if (k !== 'none') for (const s of all) if (k === 'all' || (k === 'archer') === (s.type === 'archer')) sel.add(s.id);
+    if (k === 'all' || k === 'sword' || k === 'archer') for (const s of all) if (k === 'all' || (k === 'archer') === (s.type === 'archer')) sel.add(s.id);
+    if (k === 'all' || k === 'catapult' || k === 'ram' || k === 'ship') for (const v of allV) if (k === 'all' || v.kind === k) sel.add(v.id);
     renderPanel();
   });
-  on('[data-act=find]', () => { const l = selList(); if (!l.length) return; R.cam.x = l.reduce((a, s) => a + s.x, 0) / l.length; R.cam.y = l.reduce((a, s) => a + s.y, 0) / l.length; });
-  on('[data-act=release]', () => { const l = selList(); game.orderRelease(l); game.toast(l.length === 1 ? 'Der Soldat geht nach Hause.' : `${l.length} Soldaten gehen nach Hause.`); sel.clear(); renderPanel(); });
+  on('[data-act=find]', () => { const l = [...selList(), ...selVehicles()]; if (!l.length) return; R.cam.x = l.reduce((a, s) => a + s.x, 0) / l.length; R.cam.y = l.reduce((a, s) => a + s.y, 0) / l.length; });
+  on('[data-act=release]', () => { const l = selList(), v = selVehicles(), n = l.length + v.length; game.orderRelease(l); game.orderVehicleRelease(v); game.toast(n === 1 ? 'Geht zurück nach Hause.' : `${n} gehen zurück nach Hause.`); sel.clear(); renderPanel(); });
   p.querySelector('[data-close]').addEventListener('click', () => setTool('hand'));
 }
 function openTribe(i) { panelMode = 'tribe'; selTribe = i; selected = null; buildType = null; ghost = null; attackW = { sword: 99, archer: 99 }; renderPanel(); }
@@ -859,7 +896,7 @@ function renderTribe(p) {
     body += `<p><b>${esc(verdict)}</b></p><div class="actions"><button class="btn primary" data-act="attack" type="button" ${pick.length ? '' : 'disabled'}>Angreifen mit ${pick.length}</button></div>`;
   } else body += '<p>In den Gebäuden in Reichweite sind keine freien Soldaten. Bilde in einer Kaserne welche aus. Jeder Wachturm und jede Festung behält eine Wache.</p>';
   if (!t.island && ((game.catapults || 0) > 0 || (game.rams || 0) > 0)) {   // Belagerung
-    const sg = game.sieges || [], readyC = (game.catapults || 0) - sg.filter((c) => c.kind === 'catapult').length, readyR = (game.rams || 0) - sg.filter((c) => c.kind === 'ram').length;
+    const sg = game.sieges || [], readyC = game.idleVehicles('catapult').length, readyR = game.idleVehicles('ram').length;
     const here = sg.filter((c) => c.campaign === selTribe).length, kc = Math.min(readyC, 3), kr = Math.min(readyR, 2);
     body += `<div class="row"><span>${icon('catapult')} Katapulte · ${icon('ram')} Rammböcke bereit</span><b>${readyC} · ${readyR}${here ? ` (${here} belagern)` : ''}</b></div>`;
     const what = [kc ? `${kc} ${kc === 1 ? 'Katapult' : 'Katapulten'}` : '', kr ? `${kr} ${kr === 1 ? 'Rammbock' : 'Rammböcken'}` : ''].filter(Boolean).join(' und ');

@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE, CARRY_MAX, CARRIER_ROAD, OUT_MAX,
-} from './data.js?v=18';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=18';
-import { Realm } from './realm.js?v=18';
+} from './data.js?v=19';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=19';
+import { Realm } from './realm.js?v=19';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
@@ -780,13 +780,14 @@ export class Game {
           if (r.out.boat) {
             const tier = Math.min(3, b.level || 1);
             this.addBoat(tier); this.stats.boats++; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('boat');
-            this.toast(this.boats === 1 ? 'Dein erstes Boot ist fertig. Jetzt geht es übers Wasser.' : tier === 3 ? 'Ein Kriegsschiff ist fertig.' : tier === 2 ? 'Ein Langboot ist fertig.' : 'Ein Boot ist fertig.');
+            if (tier === 3) this.addShip(b);   // Kriegsschiffe sind steuerbare Einheiten, sie liegen an der Werft
+            this.toast(this.boats === 1 ? 'Dein erstes Boot ist fertig. Jetzt geht es übers Wasser.' : tier === 3 ? 'Ein Kriegsschiff ist fertig. Es liegt an der Werft, steuern kannst du es mit Truppen.' : tier === 2 ? 'Ein Langboot ist fertig.' : 'Ein Boot ist fertig.');
           } else if (r.out.ram) {
-            this.rams = (this.rams || 0) + 1; b.ramOrders = Math.max(0, (Number(b.ramOrders) || 0) - 1); this.sound('build');
-            this.toast('Ein Rammbock ist fertig. Schick ihn im Fenster eines Stammes los.');
+            this.addVehicle('ram', b); this.syncVehicleCounts(); b.ramOrders = Math.max(0, (Number(b.ramOrders) || 0) - 1); this.sound('build');
+            this.toast('Ein Rammbock ist fertig. Er steht am Geschützbauer, steuern kannst du ihn mit Truppen.');
           } else if (r.out.catapult) {
-            this.catapults = (this.catapults || 0) + 1; b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('build');
-            this.toast('Ein Katapult ist fertig. Schick es im Fenster eines Stammes los.');
+            this.addVehicle('catapult', b); this.syncVehicleCounts(); b.orders = Math.max(0, (Number(b.orders) || 0) - 1); this.sound('build');
+            this.toast('Ein Katapult ist fertig. Es steht am Geschützbauer, steuern kannst du es mit Truppen.');
           } else for (const k in r.out) b.out[k] = (b.out[k] || 0) + r.out[k];
           if (r.out.bread) this.stats.bread += r.out.bread;
           if (r.out.iron) this.stats.iron += r.out.iron;

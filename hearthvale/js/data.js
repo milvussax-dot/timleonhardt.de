@@ -134,7 +134,7 @@ export const SHIPYARD_LEVELS = [
   { name: 'Werft, Stufe 2', boat: 'Langboot', boats: 'Langboote', seats: 6, cost: { plank: 20, stone: 12, iron: 3 }, build: 40, recipe: { in: { plank: 16, iron: 1 }, out: { boat: 1 }, time: 36 }, value: 110 },
   { name: 'Werft, Stufe 3', boat: 'Kriegsschiff', boats: 'Kriegsschiffe', seats: 8, armed: true, cost: { plank: 30, stone: 20, iron: 8 }, build: 55, recipe: { in: { plank: 20, iron: 3 }, out: { boat: 1 }, time: 45 }, value: 162 },
 ];
-export const WARSHIP = { atk: 5, range: 7.5, cd: 2.2, speed: 2.2 };
+export const WARSHIP = { atk: 5, range: 7.5, cd: 2.2, speed: 2.2, hp: 90 };
 // hp und atk gelten für einfache Krieger am Anfang; mit jeder Jahreszeit werden sie stärker (Stufe 1 bis 4)
 export const TRIBES = [
   { key: 'rotfedern',    name: 'Rotfedern',    color: '#d9483b', atk: 2.8, hp: 13, start: 18, grow: 1.2 },

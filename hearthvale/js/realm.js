@@ -1,7 +1,7 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM, RAM_RECIPE, THIEF, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=18';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=18';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM, RAM_RECIPE, THIEF, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=19';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=19';
 
 export const CAMP_R = 12;       // so weit reicht das Land eines Stammes
 export const FIRST_RAID = 10;   // vorher greift niemand an
@@ -46,7 +46,7 @@ export const QUEST_TEST = {
 export const Realm = {
   /* ---------- Einrichtung ---------- */
   setupRealm(sites) {
-    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 }; this.catapults = 0; this.rams = 0; this.thieves = [];
+    this.tribes = []; this.soldiers = []; this.boats = 0; this.fleet = [0, 0, 0, 0]; this.quests = []; this.stats = { ...STATS0 }; this.catapults = 0; this.rams = 0; this.thieves = []; this.sieges = []; this.ships = [];
     if (this.seenCount == null) this.seenCount = 0;
     const rnd = mulberry(hash(this.seed + ':stämme'));
     const pool = TRIBES.filter((t) => t.key !== 'nebelfischer');
@@ -175,7 +175,9 @@ export const Realm = {
   },
   // flüchtiger Zustand nach Start und Laden
   initRealm() {
-    this.foes = []; this.ships = []; this.shots = []; this.sieges = [];
+    this.foes = []; this.shots = [];
+    if (!this.sieges) this.sieges = [];
+    if (!this.ships) this.ships = [];
     if (!this.thieves) this.thieves = [];
     this.realmT = 0; this.garT = 1; this.questT = 1;
     this.fogVer = (this.fogVer || 0) + 1;
@@ -386,6 +388,7 @@ export const Realm = {
         let tg = null, bd = B.range;
         for (const s of this.soldiers) { if (s.state === 'garrison') continue; const d = Math.hypot(s.x - cx, s.y - cy); if (d <= bd) { bd = d; tg = s; } }
         for (const c of this.sieges) { const d = Math.hypot(c.x - cx, c.y - cy); if (d <= bd) { bd = d; tg = c; } }
+        for (const c of this.ships) { const d = Math.hypot(c.x - cx, c.y - cy); if (d <= bd) { bd = d; tg = c; } }
         for (const th of this.thieves || []) { if (!th.spotted) continue; const d = Math.hypot(th.x - cx, th.y - cy); if (d <= bd) { bd = d; tg = th; } }
         if (!tg) { b.cd = 0.4; continue; }
         b.cd = B.cd * (0.9 + this.rng() * 0.2);
@@ -806,11 +809,11 @@ export const Realm = {
       if (sh.t < sh.dur) continue;
       this.shots.splice(i, 1);
       if (sh.kind === 'stone') { this.stoneHit(sh); continue; }
-      const list = sh.tkind === 'soldier' ? this.soldiers : sh.tkind === 'catapult' || sh.tkind === 'ram' ? this.sieges : sh.tkind === 'thief' ? (this.thieves || []) : this.foes;
+      const list = sh.tkind === 'soldier' ? this.soldiers : sh.tkind === 'catapult' || sh.tkind === 'ram' ? this.sieges : sh.tkind === 'ship' ? this.ships : sh.tkind === 'thief' ? (this.thieves || []) : this.foes;
       const tg = list.find((u) => u.id === sh.tid);
       if (!tg) continue;
       tg.hp -= sh.dmg * (tg.kind === 'ram' ? RAM.armor : 1); tg.hurtT = 0.25;
-      if (tg.hp <= 0) { if (list === this.sieges) this.destroySiege(tg); else if (tg.kind === 'thief') this.killThief(tg); else this.killUnit(tg, sh.by); }
+      if (tg.hp <= 0) { if (list === this.sieges) this.destroySiege(tg); else if (list === this.ships) this.destroyShip(tg); else if (tg.kind === 'thief') this.killThief(tg); else this.killUnit(tg, sh.by); }
       else this.provoke(tg, sh.by);
     }
   },
@@ -1149,155 +1152,310 @@ export const Realm = {
       s.state = 'march'; s.think = 0; sent++;
     }
     if (!sent) return 'Deine Soldaten finden keinen Weg dorthin.';
-    const ships = this.fleet[3] > 0 && !this.ships.some((x) => x.campaign === ti) ? this.launchShips(ti, Math.min(2, this.fleet[3])) : 0;
+    const fleet = this.coastal(t) ? this.ships.filter((x) => x.campaign == null && (x.state === 'dock' || x.state === 'hold')).slice(0, 2) : [];
+    for (const x of fleet) Object.assign(x, { campaign: ti, auto: true, state: 'attack', path: null, repath: 0, post: null, foeTarget: null });
+    const ships = fleet.length;
     this.toast(`${sent} ${sent === 1 ? 'Soldat zieht' : 'Soldaten ziehen'} gegen die ${t.name}.${ships ? ` ${ships === 1 ? 'Ein Kriegsschiff schießt' : `${ships} Kriegsschiffe schießen`} von der Küste mit.` : ''}`);
     return null;
   },
-  // Kriegsschiffe fahren übers Wasser nahe ans Lager und schießen mit dem Wurfgeschütz
-  launchShips(ti, n) {
-    const t = this.tribes[ti], w = this.world;
-    let best = null, bd = Infinity;
-    for (let y = t.cy - 8; y <= t.cy + 8; y++) for (let x = t.cx - 8; x <= t.cx + 8; x++) {
-      if (!w.inb(x, y) || !w.isWater(x, y)) continue;
-      const d = Math.hypot(x - t.cx, y - t.cy);
-      if (d < bd && d <= WARSHIP.range - 0.5) { bd = d; best = { x, y }; }
-    }
-    if (!best) return 0;
-    const pass = this.passFor({ kind: 'ship' }), W = w.w;
-    const depth = new Map([[best.y * W + best.x, 0]]), q = [best];
-    let far = best, fd = 0;
-    while (q.length) {
-      const c = q.shift(), cd = depth.get(c.y * W + c.x);
-      if (cd > fd) { fd = cd; far = c; }
-      if (cd >= 14) continue;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const x = c.x + dx, y = c.y + dy, k = y * W + x;
-        if (!w.inb(x, y) || depth.has(k) || !pass(x, y)) continue;
-        depth.set(k, cd + 1); q.push({ x, y });
-      }
-    }
-    let launched = 0;
-    for (let i = 0; i < n; i++) {
-      const sh = { id: this.nextId++, kind: 'ship', campaign: ti, x: far.x + 0.5, y: far.y + 0.5, spawn: { x: far.x, y: far.y }, state: 'sail', cd: 1 + i, path: null, pi: 0, walkT: 0, facing: best.x >= far.x ? 1 : 3 };
-      const r = this.unitGo(sh, (x, y) => Math.hypot(x - best.x, y - best.y) <= 1.5 + i, best.x, best.y, 6000);
-      if (r === null) continue;
-      this.ships.push(sh); launched++;
-    }
-    return launched;
-  },
+  // Kriegsschiffe: liegen an der Werft, segeln auf Befehl und schießen auf Krieger und Lagergebäude in Reichweite
   updateShips(dt) {
     for (const sh of this.ships.slice()) {
-      sh.cd = Math.max(0, sh.cd - dt);
+      if (!this.ships.includes(sh)) continue;
+      if (sh.cd > 0) sh.cd -= dt;
       if (sh.swing > 0) sh.swing -= dt;
-      const t = this.tribes[sh.campaign];
-      const active = t && !t.defeated && this.soldiers.some((s) => s.campaign === sh.campaign);
-      if (!active && sh.state !== 'leave') { sh.state = 'leave'; sh.path = null; }
-      if (sh.state === 'sail' || sh.state === 'leave') {
-        if (!sh.path) {
-          if (sh.state === 'sail') { sh.state = 'fire'; continue; }
-          const r = this.unitGo(sh, (x, y) => x === sh.spawn.x && y === sh.spawn.y, sh.spawn.x, sh.spawn.y, 6000);
-          if (r !== 'go') this.ships = this.ships.filter((x) => x !== sh);
-          continue;
+      if (sh.hurtT > 0) sh.hurtT -= dt;
+      let t = sh.campaign != null ? this.tribes[sh.campaign] : null;
+      // bei einem Angriff mitgeschickt: zurück an die Werft, wenn der Angriff vorbei ist
+      if (sh.auto && (!t || t.defeated || !this.soldiers.some((s) => s.campaign === sh.campaign))) { sh.auto = false; sh.campaign = null; t = null; if (sh.state !== 'dock') { sh.state = 'return'; sh.path = null; } }
+      if (sh.campaign != null && (!t || t.defeated)) { sh.campaign = null; t = null; if (sh.state === 'attack') { sh.state = 'hold'; sh.path = null; } }
+      if (sh.cd <= 0) {   // schießen: erst Krieger, im Halten auch auf Gebäude eines Lagers
+        let f = null, bd = WARSHIP.range;
+        if (sh.state === 'hunt') { const o = this.foes.find((x) => x.id === sh.foeTarget); if (o && Math.hypot(o.x - sh.x, o.y - sh.y) <= bd) f = o; }
+        if (!f) for (const o of this.foes) { const d = Math.hypot(o.x - sh.x, o.y - sh.y); if (d <= bd) { bd = d; f = o; } }
+        if (f) { sh.cd = WARSHIP.cd; sh.facing = f.x >= sh.x ? 1 : 3; this.shoot(sh, f); }
+        else if (sh.state === 'hold' || (sh.state === 'attack' && !sh.path)) {
+          const near = this.structureInRange(sh.x, sh.y, WARSHIP.range);
+          if (near) { sh.cd = WARSHIP.cd * 1.4; this.fireStone(sh, near.ti, near.s.x + 1, near.s.y + 1, near.s.x, near.s.y); } else sh.cd = 0.3;
+        } else sh.cd = 0.3;
+      }
+      if (sh.state === 'dock' || sh.state === 'hold') continue;
+      if (sh.state === 'hunt') {
+        const o = this.foes.find((x) => x.id === sh.foeTarget);
+        if (!o) { Object.assign(sh, { foeTarget: null, state: 'hold', path: null }); continue; }
+        if (Math.hypot(o.x - sh.x, o.y - sh.y) <= WARSHIP.range - 0.5) { sh.path = null; continue; }
+      }
+      if (!sh.path) {
+        if ((sh.repath = (sh.repath || 0) - dt) > 0) continue;
+        sh.repath = 1.5;
+        let r = null;
+        if (sh.state === 'sail') { const p = sh.post; r = this.unitGo(sh, (x, y) => x === p.x && y === p.y, p.x, p.y, 80000); }
+        else if (sh.state === 'attack') r = this.unitGo(sh, (x, y) => Math.hypot(x - t.cx, y - t.cy) <= WARSHIP.range - 0.5, t.cx, t.cy, 80000);
+        else if (sh.state === 'hunt') { const o = this.foes.find((x) => x.id === sh.foeTarget); r = this.unitGo(sh, (x, y) => Math.hypot(x - o.x, y - o.y) <= WARSHIP.range - 1, Math.floor(o.x), Math.floor(o.y), 80000); }
+        else {   // return
+          const home = this.byId(sh.home) || this.vehicleHome('ship'), p = home && this.dockSpot(home, sh);
+          if (p) { sh.home = home.id; r = this.unitGo(sh, (x, y) => x === p.x && y === p.y, p.x, p.y, 80000); }
         }
-        const r = this.follow(sh, dt * WARSHIP.speed);
-        if (r === true) { if (sh.state === 'leave') this.ships = this.ships.filter((x) => x !== sh); else sh.state = 'fire'; }
-        else if (r === 'blocked') sh.path = null;
+        if (r === 'here') this.shipArrived(sh);
+        else if (!r) {
+          if (sh.state === 'return') sh.state = 'dock';   // kein Weg zurück: bleibt, wo es ist
+          else { if (!sh.auto) this.toast('Das Kriegsschiff kommt dort nicht hin, das Wasser hängt nicht zusammen.'); Object.assign(sh, { state: sh.auto ? 'return' : 'hold', campaign: null, auto: false, foeTarget: null }); }
+        }
         continue;
       }
-      if (sh.cd > 0) continue;
-      let f = null, bd = WARSHIP.range;
-      for (const o of this.foes) { if (o.tribe !== sh.campaign) continue; const d = Math.hypot(o.x - sh.x, o.y - sh.y); if (d <= bd) { bd = d; f = o; } }
-      if (f) { sh.cd = WARSHIP.cd; sh.facing = f.x >= sh.x ? 1 : 3; this.shoot(sh, f); }
+      const r = this.follow(sh, dt * WARSHIP.speed);
+      if (r === true) { sh.path = null; this.shipArrived(sh); } else if (r === 'blocked') sh.path = null;
     }
+  },
+  shipArrived(sh) { if (sh.state === 'sail' || sh.state === 'attack') sh.state = 'hold'; else if (sh.state === 'return') sh.state = 'dock'; },
+  destroyShip(sh) {
+    this.ships = this.ships.filter((x) => x !== sh);
+    this.fleet[3] = Math.max(0, (this.fleet[3] || 0) - 1); this.boats = this.fleet.reduce((a, n) => a + n, 0);
+    this.sound('crash', sh.x, sh.y);
+    this.floatText(sh.x, sh.y - 0.6, 'versenkt', '#ff9a8a');
+    this.toast('Ein Kriegsschiff wurde versenkt.');
   },
   addBoat(tier) { this.fleet[tier] = (this.fleet[tier] || 0) + 1; this.boats = this.fleet.reduce((a, n) => a + n, 0); },
   recall(ti) {
     let n = 0;
     for (const s of this.soldiers) if (s.campaign === ti) { s.campaign = null; s.foe = null; s.state = 'return'; s.path = null; n++; }
-    for (const c of this.sieges) if (c.campaign === ti && c.state !== 'return') { c.state = 'return'; c.path = null; }
+    for (const c of [...this.sieges, ...this.ships]) if (c.campaign === ti) Object.assign(c, { campaign: null, order: null, auto: false, state: 'return', path: null });
     return n;
   },
   /* ---------- Belagerung ---------- */
   // Ziele im Lager: erst Wachtürme, dann Häuser, dann Hütten
   campTargets(t) { const b = t.builds || []; return [...b.filter((x) => x.kind === 'tower'), ...b.filter((x) => x.kind === 'house'), ...t.huts]; },
   firstTargets(t) { const all = this.campTargets(t); if (!all.length) return all; const kind = all[0].kind || 'hut'; return all.filter((x) => (x.kind || 'hut') === kind); },
-  // Katapulte rollen in Schussweite, Rammböcke bis an die Gebäude
+  /* ---------- Fahrzeuge: Katapulte, Rammböcke, Kriegsschiffe ---------- */
+  // Zuhause eines Fahrzeugs: Geschützbauer (sonst Kaserne oder Lager), Schiffe an der Werft
+  vehicleHome(kind) {
+    if (kind === 'ship') return this.buildings.find((b) => b.type === 'shipyard' && b.built) || null;
+    return this.buildings.find((b) => b.type === 'siege' && b.built) || this.buildings.find((b) => b.type === 'barracks' && b.built) || this.buildings.find((b) => b.type === 'storage' && b.built) || this.buildings[0];
+  },
+  // freier Parkplatz neben dem Gebäude
+  parkSpot(home, c) {
+    const w = this.world, d = this.door(home);
+    const used = new Set(this.sieges.filter((o) => o !== c && o.state === 'park').map((o) => Math.floor(o.y) * 4096 + Math.floor(o.x)));
+    for (let r = 1; r <= 7; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = d.x + dx, y = d.y + dy;
+      if (w.walkable(x, y) && !used.has(y * 4096 + x)) return { x, y };
+    }
+    return { x: d.x, y: d.y };
+  },
+  // Liegeplatz auf dem Wasser nahe der Werft
+  dockSpot(home, sh) {
+    const w = this.world, cx = home.x + 1, cy = home.y + 1;
+    const used = new Set(this.ships.filter((o) => o !== sh && o.state === 'dock').map((o) => Math.floor(o.y) * 4096 + Math.floor(o.x)));
+    for (let r = 1; r <= 9; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = cx + dx, y = cy + dy;
+      if (w.inb(x, y) && w.isWater(x, y) && !used.has(y * 4096 + x)) return { x, y };
+    }
+    return null;
+  },
+  addVehicle(kind, home, at) {
+    const hp = kind === 'ram' ? RAM.hp : CATAPULT.hp;
+    const c = { id: this.nextId++, kind, x: 0, y: 0, home: home ? home.id : null, state: 'park', campaign: null, order: null, post: null, foeTarget: null, target: null, hp, maxHp: hp, cd: 0, path: null, pi: 0, facing: 2, swing: 0, hurtT: 0, walkT: 0, repath: 0, skip: [] };
+    const p = at || (home ? this.parkSpot(home, c) : { x: Math.floor(this.player.x), y: Math.floor(this.player.y) });
+    c.x = p.x + 0.5; c.y = p.y + 0.5;
+    this.sieges.push(c);
+    return c;
+  },
+  addShip(home, at) {
+    const sh = { id: this.nextId++, kind: 'ship', x: 0, y: 0, home: home ? home.id : null, state: 'dock', campaign: null, post: null, foeTarget: null, auto: false, hp: WARSHIP.hp, maxHp: WARSHIP.hp, cd: 0, path: null, pi: 0, facing: 1, swing: 0, hurtT: 0, walkT: 0, repath: 0 };
+    const p = at || (home && this.dockSpot(home, sh));
+    if (!p) return null;
+    sh.x = p.x + 0.5; sh.y = p.y + 0.5;
+    this.ships.push(sh);
+    return sh;
+  },
+  syncVehicleCounts() { this.catapults = this.sieges.filter((c) => c.kind === 'catapult').length; this.rams = this.sieges.filter((c) => c.kind === 'ram').length; },
+  idleVehicles(kind) { return this.sieges.filter((c) => c.kind === kind && c.campaign == null && (c.state === 'park' || c.state === 'hold' || c.state === 'return')); },
+  coastal(t) {
+    const w = this.world;
+    for (let y = t.cy - 8; y <= t.cy + 8; y++) for (let x = t.cx - 8; x <= t.cx + 8; x++) if (w.inb(x, y) && w.isWater(x, y) && Math.hypot(x - t.cx, y - t.cy) <= WARSHIP.range - 0.5) return true;
+    return false;
+  },
+  // Katapulte rollen in Schussweite, Rammböcke bis an die Gebäude (aus dem Fenster eines Stammes)
   siegeTribe(ti, n) {
     const t = this.tribes[ti];
     if (!t || t.defeated) return 'Dieses Lager gibt es nicht mehr.';
     if (t.island) return 'Auf die Insel kommen keine Belagerungsgeräte.';
-    const freeC = (this.catapults || 0) - this.sieges.filter((c) => c.kind === 'catapult').length;
-    const freeR = (this.rams || 0) - this.sieges.filter((c) => c.kind === 'ram').length;
-    if (freeC <= 0 && freeR <= 0) return 'Kein Katapult und kein Rammbock bereit. Bestell sie beim Geschützbauer.';
+    const cats = this.idleVehicles('catapult').slice(0, n), rams = this.idleVehicles('ram').slice(0, 2);
+    if (!cats.length && !rams.length) return 'Kein Katapult und kein Rammbock bereit. Bestell sie beim Geschützbauer.';
     if (!this.attackSources(t).length) return 'Kein eigenes Militärgebäude in Reichweite. Bau einen Wachturm näher am Lager.';
     if (!this.campTargets(t).length) return 'In diesem Lager steht nichts mehr, was man zerstören könnte.';
-    const home = this.buildings.find((b) => b.type === 'siege' && b.built) || this.buildings.find((b) => b.type === 'barracks' && b.built) || this.nearestStorage(t.cx, t.cy);
-    if (!home) return 'Kein Ort, von dem die Geräte losrollen können.';
-    const d = this.door(home), kc = Math.min(n, freeC), kr = Math.min(2, freeR);
-    const add = (kind, i) => {
-      const hp = kind === 'ram' ? RAM.hp : CATAPULT.hp;
-      this.sieges.push({ id: this.nextId++, kind, x: d.x + 0.5, y: d.y + 0.5 + i * 0.2, home: home.id, campaign: ti, state: 'roll', hp, maxHp: hp, cd: 0, path: null, pi: 0, facing: 2, swing: 0, hurtT: 0, walkT: 0, repath: i * 0.4, target: null });
-    };
-    for (let i = 0; i < kc; i++) add('catapult', i);
-    for (let i = 0; i < kr; i++) add('ram', kc + i);
-    const word = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
+    this.orderVehicleAttack([...cats, ...rams], ti, null);
+    const kc = cats.length, kr = rams.length, word = (k, one, many) => (k === 1 ? one : `${k} ${many}`);
     const parts = [kc ? word(kc, 'ein Katapult', 'Katapulte') : '', kr ? word(kr, 'ein Rammbock', 'Rammböcke') : ''].filter(Boolean).join(' und ');
     this.toast(`${parts[0].toUpperCase()}${parts.slice(1)} ${kc + kr === 1 ? 'rollt' : 'rollen'} zum Lager der ${t.name}. Schick Soldaten zum Schutz mit.`);
     return null;
+  },
+  // Befehle (Truppensteuerung) für Katapulte, Rammböcke und Kriegsschiffe
+  orderVehicleMove(list, tx, ty) {
+    let n = 0;
+    for (const c of list) {
+      if (c.kind === 'ship') {
+        const p = this.waterNear(tx, ty);
+        if (!p) continue;
+        Object.assign(c, { post: p, campaign: null, foeTarget: null, auto: false, state: 'sail', path: null, repath: 0 });
+      } else Object.assign(c, { post: { x: tx, y: ty }, campaign: null, order: null, foeTarget: null, state: 'move', path: null, repath: 0, skip: [] });
+      n++;
+    }
+    return n;
+  },
+  orderVehicleAttack(list, ti, structure) {
+    for (const c of list) {
+      if (c.kind === 'ship') Object.assign(c, { campaign: ti, post: null, foeTarget: null, auto: false, state: 'attack', path: null, repath: 0 });
+      else Object.assign(c, { campaign: ti, order: structure ? { x: structure.x, y: structure.y } : null, post: null, foeTarget: null, state: 'roll', path: null, repath: 0, skip: [] });
+    }
+  },
+  orderVehicleAttackFoe(list, foe) {
+    for (const c of list) {
+      if (c.kind === 'ram') Object.assign(c, { post: { x: Math.floor(foe.x), y: Math.floor(foe.y) }, campaign: null, order: null, foeTarget: null, state: 'move', path: null, repath: 0 });
+      else Object.assign(c, { foeTarget: foe.id, campaign: null, order: null, post: null, auto: false, state: 'hunt', path: null, repath: 0 });
+    }
+  },
+  orderVehicleRelease(list) {
+    for (const c of list) Object.assign(c, { post: null, campaign: null, order: null, foeTarget: null, auto: false, state: 'return', path: null, repath: 0 });
+  },
+  // Wasserfeld nahe (tx, ty); ob das Schiff hinkommt, zeigt die Wegsuche
+  waterNear(tx, ty) {
+    const w = this.world;
+    for (let r = 0; r <= 8; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = tx + dx, y = ty + dy;
+      if (w.inb(x, y) && w.isWater(x, y)) return { x, y };
+    }
+    return null;
+  },
+  // nächstes Gebäude eines entdeckten Lagers in Reichweite
+  structureInRange(x, y, range) {
+    let best = null, bd = range;
+    this.tribes.forEach((t, ti) => {
+      if (t.defeated || !this.world.seen[this.world.i(t.cx, t.cy)] || Math.hypot(t.cx - x, t.cy - y) > range + 14) return;
+      for (const s of this.campTargets(t)) { const d = Math.hypot(s.x + 1 - x, s.y + 1 - y); if (d < bd) { bd = d; best = { ti, s }; } }
+    });
+    return best;
+  },
+  // Gebäude, an dem ein Rammbock gerade steht
+  adjacentStructure(c) {
+    for (let ti = 0; ti < this.tribes.length; ti++) {
+      const t = this.tribes[ti];
+      if (t.defeated || Math.hypot(t.cx - c.x, t.cy - c.y) > 16) continue;
+      for (const s of this.campTargets(t)) if (c.x >= s.x - 0.7 && c.x <= s.x + 2.7 && c.y >= s.y - 0.7 && c.y <= s.y + 2.7) return { ti, s };
+    }
+    return null;
+  },
+  fireStone(c, ti, x1, y1, hx, hy) {
+    const x0 = c.x, y0 = c.y - 0.6;
+    this.shots.push({ x0, y0, x1, y1, t: 0, dur: 0.7 + Math.hypot(x1 - x0, y1 - y0) * 0.07, kind: 'stone', tribe: ti, hx, hy });
+    c.swing = 0.6; c.facing = x1 >= c.x ? 1 : 3;
+    this.sound('catapult', c.x, c.y);
+  },
+  vehicleArrived(c) {
+    if (c.state === 'roll') { c.state = c.kind === 'ram' ? 'ram' : 'fire'; c.cd = Math.max(c.cd || 0, 1.2); }
+    else if (c.state === 'move') c.state = 'hold';
+    else if (c.state === 'return') this.parkVehicle(c);
+  },
+  parkVehicle(c) {
+    const home = this.byId(c.home) || this.vehicleHome(c.kind);
+    if (home) { const p = this.parkSpot(home, c); c.x = p.x + 0.5; c.y = p.y + 0.5; c.home = home.id; }
+    Object.assign(c, { state: 'park', path: null, campaign: null, order: null, post: null, foeTarget: null });
   },
   updateSieges(dt) {
     for (const c of this.sieges.slice()) {
       if (!this.sieges.includes(c)) continue;
       if (c.hurtT > 0) c.hurtT -= dt;
       if (c.swing > 0) c.swing -= dt;
-      const t = this.tribes[c.campaign];
-      if (c.state !== 'return' && (!t || t.defeated || !this.campTargets(t).length)) { c.state = 'return'; c.path = null; }
-      const ram = c.kind === 'ram';
-      if (c.state === 'fire') {   // Katapult schießt auf die wichtigsten Ziele
-        if ((c.cd -= dt) > 0) continue;
+      if (c.cd > 0) c.cd -= dt;
+      const ram = c.kind === 'ram', speed = ram ? RAM.speed : CATAPULT.speed;
+      let t = c.campaign != null ? this.tribes[c.campaign] : null;
+      if (c.campaign != null && (!t || t.defeated || !this.campTargets(t).length)) {
+        c.campaign = null; c.order = null; t = null;
+        if (c.state === 'roll' || c.state === 'fire' || c.state === 'ram') { c.state = c.post ? 'move' : 'return'; c.path = null; }
+      }
+      if (c.state === 'park') continue;
+      if (c.state === 'hold') {   // hält einen befohlenen Platz und greift an, was in Reichweite liegt
+        if (ram) { const a = this.adjacentStructure(c); if (a) Object.assign(c, { campaign: a.ti, target: { x: a.s.x, y: a.s.y }, state: 'ram', cd: 0.8 }); continue; }
+        if (c.cd > 0) continue;
+        const near = this.structureInRange(c.x, c.y, CATAPULT.range);
+        if (near) { c.cd = CATAPULT.cd * (0.9 + this.rng() * 0.2); this.fireStone(c, near.ti, near.s.x + 1, near.s.y + 1, near.s.x, near.s.y); this.sallyFor(this.tribes[near.ti], c); }
+        else c.cd = 0.5;
+        continue;
+      }
+      if (c.state === 'hunt') {   // Katapult schießt auf einen Krieger
+        const f = this.foes.find((x) => x.id === c.foeTarget);
+        if (!f) { Object.assign(c, { foeTarget: null, post: { x: Math.floor(c.x), y: Math.floor(c.y) }, state: 'hold', path: null }); continue; }
+        if (Math.hypot(f.x - c.x, f.y - c.y) <= CATAPULT.range) { c.path = null; if (c.cd <= 0) { c.cd = CATAPULT.cd; this.fireStone(c, f.tribe, f.x, f.y, null, null); } continue; }
+        if (!c.path && (c.repath = (c.repath || 0) - dt) <= 0) { c.repath = 1; this.unitGo(c, (x, y) => Math.hypot(x - f.x, y - f.y) <= CATAPULT.range - 1, Math.floor(f.x), Math.floor(f.y), 60000); }
+        if (c.path && this.follow(c, dt * speed) === 'blocked') c.path = null;
+        continue;
+      }
+      if (c.state === 'fire') {   // erst das befohlene Ziel, sonst Türme vor Häusern vor Hütten in Reichweite
+        if (c.cd > 0) continue;
+        const all = this.campTargets(t), inRange = (x) => Math.hypot(x.x + 1 - c.x, x.y + 1 - c.y) <= CATAPULT.range + 1;
+        let h = c.order ? all.find((x) => x.x === c.order.x && x.y === c.order.y) : null;
+        if (!h) {
+          c.order = null;
+          const first = this.firstTargets(t).filter(inRange), any = first.length ? first : all.filter(inRange);
+          h = any[Math.floor(this.rng() * any.length)];
+          if (!h) { const next = this.firstTargets(t)[0]; c.order = next ? { x: next.x, y: next.y } : null; c.state = 'roll'; c.path = null; c.repath = 0; continue; }   // näher heran
+        } else if (!inRange(h)) { c.state = 'roll'; c.path = null; c.repath = 0; continue; }
         c.cd = CATAPULT.cd * (0.9 + this.rng() * 0.2);
-        const list = this.firstTargets(t), h = list[Math.floor(this.rng() * list.length)];
-        const x0 = c.x, y0 = c.y - 0.6, x1 = h.x + 1, y1 = h.y + 1;
-        this.shots.push({ x0, y0, x1, y1, t: 0, dur: 0.7 + Math.hypot(x1 - x0, y1 - y0) * 0.07, kind: 'stone', tribe: c.campaign, hx: h.x, hy: h.y });
-        c.swing = 0.6; c.facing = x1 >= c.x ? 1 : 3;
-        this.sound('catapult', c.x, c.y);
+        this.fireStone(c, c.campaign, h.x + 1, h.y + 1, h.x, h.y);
         this.sallyFor(t, c);
         continue;
       }
       if (c.state === 'ram') {   // Rammbock stößt gegen das Gebäude, neben dem er steht
-        const tg = this.campTargets(t).find((x) => x.x === c.target.x && x.y === c.target.y);
-        if (!tg) { c.state = 'roll'; c.path = null; c.repath = 0; continue; }
-        if ((c.cd -= dt) > 0) continue;
-        c.cd = RAM.cd;
-        c.swing = 0.5; c.facing = tg.x + 1 >= c.x ? 1 : 3;
+        const tg = t && c.target ? this.campTargets(t).find((x) => x.x === c.target.x && x.y === c.target.y) : null;
+        if (!tg) { if (t) { c.state = 'roll'; c.path = null; c.repath = 0; } else c.state = c.post ? 'hold' : 'return'; continue; }
+        if (c.cd > 0) continue;
+        c.cd = RAM.cd; c.swing = 0.5; c.facing = tg.x + 1 >= c.x ? 1 : 3;
         this.sound('crash', c.x, c.y);
         this.damageStructure(t, tg, RAM.dmg);
         this.sallyFor(t, c);
         continue;
       }
+      // unterwegs: roll (zum Lager), move (zum befohlenen Platz), return (nach Hause)
       if (!c.path) {
         if ((c.repath = (c.repath || 0) - dt) > 0) continue;
         c.repath = 1;
         let r = null;
-        if (c.state === 'roll' && ram) {   // wichtigstes erreichbare Ziel: Türme vor Häusern vor Hütten, nahe zuerst
-          const rank = { tower: 0, house: 1 }, skip = c.skip || (c.skip = []);
-          const cands = this.campTargets(t).filter((x) => !skip.includes(x.x * 4096 + x.y))
-            .sort((a, b) => (rank[a.kind] ?? 2) - (rank[b.kind] ?? 2) || Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+        if (c.state === 'roll' && ram) {   // befohlenes Ziel, sonst Türme vor Häusern vor Hütten, nahe zuerst
+          const rank = { tower: 0, house: 1 }, skip = c.skip || (c.skip = []), all = this.campTargets(t);
+          const ord = c.order ? all.find((x) => x.x === c.order.x && x.y === c.order.y) : null;
+          const cands = (ord ? [ord] : []).concat(all.filter((x) => x !== ord && !skip.includes(x.x * 4096 + x.y))
+            .sort((a, b) => (rank[a.kind] ?? 2) - (rank[b.kind] ?? 2) || Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y)));
           for (const tg of cands.slice(0, 4)) {
             r = this.unitGo(c, nextToRect(tg.x, tg.y, 2, 2), tg.x + 1, tg.y + 1, 300000);
             if (r) { c.target = { x: tg.x, y: tg.y }; break; }
             skip.push(tg.x * 4096 + tg.y);
+            if (tg === ord) c.order = null;
           }
-          if (!r && cands.length > 4) { c.repath = 0.2; continue; }   // weitere Ziele beim nächsten Mal versuchen
-        } else if (c.state === 'roll') r = this.unitGo(c, (x, y) => { const dd = Math.hypot(x - t.cx, y - t.cy); return dd >= 8 && dd <= CATAPULT.range - 1; }, t.cx, t.cy, 300000);
-        else { const home = this.byId(c.home) || this.nearestStorage(c.x, c.y); if (home) r = this.unitGo(c, nextToRect(home.x, home.y, home.w, home.h), home.x + 1, home.y + 1, 300000); }
-        if (r === 'here') { if (c.state === 'roll') { c.state = ram ? 'ram' : 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
-        else if (!r) { if (c.state === 'roll') { this.toast(`${ram ? 'Ein Rammbock' : 'Ein Katapult'} findet keinen Weg zum Lager und rollt zurück.`); c.state = 'return'; } else this.sieges = this.sieges.filter((x) => x !== c); }
+          if (!r && cands.length > 4) { c.repath = 0.2; continue; }   // weitere Ziele beim nächsten Mal
+        } else if (c.state === 'roll') {   // in Schussweite des befohlenen Ziels oder des Lagers
+          const o = c.order ? this.campTargets(t).find((x) => x.x === c.order.x && x.y === c.order.y) : null;
+          const ax = o ? o.x + 1 : t.cx, ay = o ? o.y + 1 : t.cy, lo = o ? 0 : 8;
+          r = this.unitGo(c, (x, y) => { const dd = Math.hypot(x - ax, y - ay); return dd >= lo && dd <= CATAPULT.range - 1; }, Math.floor(ax), Math.floor(ay), 300000);
+        } else if (c.state === 'move') {
+          const p = c.post;
+          r = this.unitGo(c, (x, y) => Math.abs(x - p.x) <= 1 && Math.abs(y - p.y) <= 1, p.x, p.y, 300000);
+        } else {
+          const home = this.byId(c.home) || this.vehicleHome(c.kind);
+          if (home) { c.home = home.id; r = this.unitGo(c, nextToRect(home.x, home.y, home.w, home.h), home.x + 1, home.y + 1, 300000); }
+        }
+        if (r === 'here') this.vehicleArrived(c);
+        else if (!r) {
+          if (c.state === 'roll') { this.toast(`${ram ? 'Ein Rammbock' : 'Ein Katapult'} findet keinen Weg zum Lager.`); Object.assign(c, { campaign: null, order: null, state: c.post ? 'hold' : 'return' }); }
+          else if (c.state === 'move') { c.post = { x: Math.floor(c.x), y: Math.floor(c.y) }; c.state = 'hold'; this.toast(`${ram ? 'Ein Rammbock' : 'Ein Katapult'} kommt dort nicht hin.`); }
+          else this.parkVehicle(c);
+        }
         continue;
       }
-      const r = this.follow(c, dt * (ram ? RAM.speed : CATAPULT.speed));
-      if (r === true) { c.path = null; if (c.state === 'roll') { c.state = ram ? 'ram' : 'fire'; c.cd = 1.5; } else this.sieges = this.sieges.filter((x) => x !== c); }
-      else if (r === 'blocked') c.path = null;
+      const r = this.follow(c, dt * speed);
+      if (r === true) { c.path = null; this.vehicleArrived(c); } else if (r === 'blocked') c.path = null;
     }
   },
   // Stein schlägt ein: Gebäude beschädigt, Krieger in der Nähe verletzt
@@ -1341,7 +1499,7 @@ export const Realm = {
   },
   destroySiege(c) {
     this.sieges = this.sieges.filter((x) => x !== c);
-    if (c.kind === 'ram') this.rams = Math.max(0, (this.rams || 0) - 1); else this.catapults = Math.max(0, (this.catapults || 0) - 1);
+    this.syncVehicleCounts();
     this.sound('crash', c.x, c.y);
     this.floatText(c.x, c.y - 0.6, 'zerschlagen', '#ff9a8a');
     this.toast(c.kind === 'ram' ? 'Ein Rammbock wurde zerschlagen.' : 'Ein Katapult wurde zerschlagen.');
@@ -1542,6 +1700,8 @@ export const Realm = {
       tribes: this.tribes.map((t, i) => ({ ...t, raid: null, sallyT: 0, warriors: t.warriors + this.foesOf(i) })),
       raidCalm: this.raidCalm || 0, thiefCalm: this.thiefCalm || 0, bal: BALANCE, catapults: this.catapults || 0, rams: this.rams || 0,
       thieves: (this.thieves || []).map((h) => ({ id: h.id, home: h.home, x: h.x, y: h.y })),
+      sieges: this.sieges.map((c) => ({ id: c.id, kind: c.kind, home: c.home, x: c.x, y: c.y, hp: c.hp })),
+      ships: this.ships.map((c) => ({ id: c.id, home: c.home, x: c.x, y: c.y, hp: c.hp })),
       soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
@@ -1561,6 +1721,14 @@ export const Realm = {
     this.raidCalm = d.raidCalm || 0;
     this.catapults = d.catapults || 0; this.rams = d.rams || 0; this.thiefCalm = d.thiefCalm || 0;
     this.thieves = (d.thieves || []).map((h) => this.makeThief(h.home, h.x, h.y, h.id));
+    // Fahrzeuge: gespeicherte Einheiten, sonst (ältere Stände) aus den Zahlen an Geschützbauer und Werft
+    this.sieges = []; this.ships = [];
+    const far = (c, home) => home && Math.hypot(c.x - home.x - 1, c.y - home.y - 1) > 5;
+    if (d.sieges) for (const v of d.sieges) { const home = this.byId(v.home) || this.vehicleHome(v.kind), c = this.addVehicle(v.kind, home, { x: Math.floor(v.x), y: Math.floor(v.y) }); c.id = v.id; c.hp = Math.min(c.maxHp, v.hp || c.maxHp); if (far(c, home)) c.state = 'return'; }
+    else { const home = this.vehicleHome('catapult'); for (let i = 0; i < (d.catapults || 0); i++) this.addVehicle('catapult', home); for (let i = 0; i < (d.rams || 0); i++) this.addVehicle('ram', home); }
+    if (d.ships) for (const v of d.ships) { const home = this.byId(v.home) || this.vehicleHome('ship'), c = this.addShip(home, { x: Math.floor(v.x), y: Math.floor(v.y) }); if (c) { c.id = v.id; c.hp = Math.min(c.maxHp, v.hp || c.maxHp); if (far(c, home)) c.state = 'return'; } }
+    else { const home = this.vehicleHome('ship'); if (home) for (let i = 0; i < (this.fleet[3] || 0); i++) this.addShip(home); }
+    this.syncVehicleCounts();
     if ((d.bal || 0) < BALANCE) this.rebalance(d.bal || 0);
   },
 };
