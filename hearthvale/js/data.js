@@ -32,12 +32,13 @@ export const ITEMS = {
   sword:  { name: 'Schwerter', price: 30, color: '#dfe4ec' },
   bow:    { name: 'Bögen',     price: 16, color: '#b07a42' },
   catapult: { name: 'Katapult', price: 150, color: '#8a5a30' },
+  beer:   { name: 'Bier',       price: 9,  color: '#d9a03a' },
   ram:    { name: 'Rammbock',   price: 160, color: '#6b4228' },
   seed_wheat:   { name: 'Weizensaat',  price: 2,  color: '#cdb46a', seed: 'wheat' },
   seed_carrot:  { name: 'Karottensaat', price: 4, color: '#d9a06a', seed: 'carrot' },
   seed_pumpkin: { name: 'Kürbissaat',  price: 12, color: '#d98a4a', seed: 'pumpkin' },
 };
-export const STOCK_ORDER = ['wood', 'stone', 'plank', 'wheat', 'flour', 'bread', 'berry', 'fish', 'carrot', 'pumpkin', 'ore', 'coal', 'iron', 'sword', 'bow'];
+export const STOCK_ORDER = ['wood', 'stone', 'plank', 'wheat', 'flour', 'bread', 'beer', 'berry', 'fish', 'carrot', 'pumpkin', 'ore', 'coal', 'iron', 'sword', 'bow'];
 export const FOOD_ORDER = ['berry', 'carrot', 'fish', 'bread', 'pumpkin'];   // Reihenfolge beim Essen
 
 export const CROPS = {
@@ -59,6 +60,13 @@ export const BUILDINGS = {
   farm:       { name: 'Bauernhof',    w: 2, h: 2, cost: { wood: 10, plank: 6 }, build: 30, job: 'farm', radius: 3, fields: 6, roof: '#c99a3a', hat: '#d9b45a', desc: 'Legt bis zu 6 Weizenfelder an, gießt und erntet sie. Gehackten Boden in der Nähe übernimmt er. Im Winter ruht er.' },
   sawmill:    { name: 'Sägewerk',     w: 2, h: 2, cost: { wood: 15, stone: 10 }, build: 30, job: 'process', recipe: { in: { wood: 2 }, out: { plank: 1 }, time: 7 }, roof: '#9a6a3a', hat: '#7a5230', desc: 'Macht aus 2 Holz 1 Brett.' },
   mill:       { name: 'Mühle',        w: 2, h: 2, cost: { plank: 10, stone: 10 }, build: 35, job: 'process', recipe: { in: { wheat: 2 }, out: { flour: 1 }, time: 7 }, roof: '#d9cfb8', hat: '#e8dcc0', desc: 'Mahlt 2 Weizen zu 1 Mehl.' },
+  brewery:    { name: 'Brauerei',     w: 2, h: 2, cost: { wood: 12, stone: 8 }, build: 30, job: 'process', recipe: { in: { wheat: 2 }, out: { beer: 2 }, time: 12 }, roof: '#a0582a', hat: '#7a4020', desc: 'Braut aus Weizen Bier. Das Gasthaus macht damit Feste.' },
+  well:       { name: 'Brunnen',      w: 2, h: 2, cost: { stone: 12, wood: 4 }, build: 15, decor: 6, roof: '#8a9aa8', desc: 'Frisches Wasser für alle. Schmückt das Dorf und macht zufriedener.' },
+  garden:     { name: 'Blumengarten', w: 2, h: 2, cost: { wood: 4, stone: 2 }, build: 10, decor: 3, roof: '#7cc35a', desc: 'Bunte Blumen. Ein wenig mehr Zufriedenheit, billig zu bauen.' },
+  statue:     { name: 'Statue',       w: 2, h: 2, cost: { stone: 24, iron: 2 }, build: 25, decor: 8, roof: '#b9b3a7', desc: 'Ein Denkmal für dein Tal. Macht deine Siedler stolz und zufriedener.' },
+  chapel:     { name: 'Kapelle',      w: 2, h: 2, cost: { plank: 20, stone: 25 }, build: 40, decor: 10, roof: '#8a5a8a', desc: 'Ein Ort der Ruhe mit Glocke. Deutlich mehr Zufriedenheit.' },
+  tavern:     { name: 'Gasthaus',     w: 2, h: 2, cost: { plank: 15, stone: 10 }, build: 35, decor: 4, roof: '#c0582a', desc: 'Jeden Abend ein Fest, wenn Bier und Brot im Lager sind. Am nächsten Tag sind alle viel zufriedener.' },
+  bathhouse:  { name: 'Badehaus',     w: 2, h: 2, cost: { stone: 15, plank: 8 }, build: 30, decor: 4, roof: '#3f8fb5', desc: 'Heißes Wasser für alle. Braucht jeden Abend Holz und macht dafür zufriedener.' },
   bakery:     { name: 'Bäckerei',     w: 2, h: 2, cost: { plank: 10, stone: 15 }, build: 35, job: 'process', recipe: { in: { flour: 1 }, out: { bread: 2 }, time: 9 }, roof: '#d07a4a', hat: '#f5f0e6', desc: 'Backt aus 1 Mehl 2 Brote. Brot macht richtig satt.' },
   charcoal:   { name: 'Köhlerei',     w: 2, h: 2, cost: { wood: 10, stone: 6 }, build: 25, job: 'process', recipe: { in: { wood: 3 }, out: { coal: 2 }, time: 9 }, roof: '#4a4a4a', hat: '#3a3a3a', desc: 'Brennt aus 3 Holz 2 Kohle.' },
   smelter:    { name: 'Schmelze',     w: 2, h: 2, cost: { stone: 15, plank: 6 }, build: 35, job: 'process', recipe: { in: { ore: 1, coal: 1 }, out: { iron: 1 }, time: 10 }, roof: '#8a3a2a', hat: '#6a3a2a', desc: 'Schmilzt Erz mit Kohle zu Eisen.' },
@@ -78,7 +86,8 @@ export const BUILDINGS = {
 export const BUILD_GROUPS = [
   ['Wohnen & Lager', ['house', 'storage', 'path']],
   ['Rohstoffe', ['woodcutter', 'forester', 'quarry', 'mine']],
-  ['Nahrung', ['field', 'fisher', 'farm', 'mill', 'bakery']],
+  ['Nahrung', ['field', 'fisher', 'farm', 'mill', 'bakery', 'brewery']],
+  ['Wohlstand', ['well', 'garden', 'statue', 'chapel', 'tavern', 'bathhouse']],
   ['Handwerk & Handel', ['sawmill', 'charcoal', 'smelter', 'smithy', 'bowyer', 'market']],
   ['Militär & Erkundung', ['barracks', 'tower', 'siege', 'scout', 'hideout', 'shipyard']],
 ];
@@ -113,9 +122,11 @@ export const TOWER_LEVELS = [
   { name: 'Bollwerk', cost: { stone: 120, plank: 60, iron: 30, sword: 4 }, build: 90, range: 8.5, atk: 6.5, cd: 1.1 },
 ];
 // Dörfer der Stämme: Häuser (stürzen sie ein, fehlen Krieger) und Wachtürme, die auf deine Truppen schießen
-export const CAMP_BUILD = { houses: 3, towers: 2, house: { hp: 4, warriors: 3 }, tower: { hp: 5, range: 7, atk: 1.6, cd: 2 } };
+export const CAMP_BUILD = { houses: 3, towers: 2, house: { hp: 4, warriors: 3 }, tower: { hp: 5, range: 7, atk: 1.6, cd: 2 }, hall: { hp: 12, warriors: 1 } };
 // Diebe: schleichen ins Lager (Entdeckung je Sekunde in der Nähe: Grundwert + je Krieger + je Turm, gedeckelt), stehlen und rennen heim
 export const THIEF = { coins: 25, hp: 8, speed: 2.4, sneak: 1.7, run: 3.2, zone: 9, spot: 0.02, spotPer: 0.0015, spotTower: 0.03, maxSpot: 0.15, steal: 3, take: { weapons: 4, coins: 80, goods: 8 } };
+// Zufriedenheit (0–100): Grundstimmung, satt, Abwechslung je Speise, schöne Häuser, Schmuck (Punkte je 10 Siedler), Fest, Bad, Sorgen
+export const HAPPY = { base: 35, fed: 10, hunger: 25, variety: 4, homes: 12, decorMax: 25, feast: 12, bath: 6, crowd: 12, raided: 8 };
 // Katapult: rollt langsam, schießt Steine auf die Hütten eines Lagers; jede zerstörte Hütte kostet den Stamm Krieger
 export const CATAPULT = { hp: 40, range: 11, cd: 5, speed: 1.6, hutHp: 3, splash: 7, perHut: 2 };
 // Rammbock: gepanzert (nimmt nur 40 % Schaden), rollt bis an Türme und Häuser und zerschlägt sie aus nächster Nähe

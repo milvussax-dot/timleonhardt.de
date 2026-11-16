@@ -1,11 +1,11 @@
 // Oberfläche, Eingabe, Spielschleife, Speichern, Bestenliste
-import { Game } from './sim.js?v=19';
-import { Renderer } from './render.js?v=19';
-import { cellRand } from './world.js?v=19';
-import { Sound } from './audio.js?v=19';
-import { FIRST_RAID } from './realm.js?v=19';
+import { Game } from './sim.js?v=20';
+import { Renderer } from './render.js?v=20';
+import { cellRand } from './world.js?v=20';
+import { Sound } from './audio.js?v=20';
+import { FIRST_RAID } from './realm.js?v=20';
 const audio = new Sound();
-import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=19';
+import { ITEMS, BUILDINGS, BUILD_GROUPS, CROPS, STOCK_ORDER, SEASONS, MAX_ENERGY, CAN_SIZE, ACTIONS, G, YEAR_DAYS, DAYS_PER_SEASON, QUESTS, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM_RECIPE, THIEF } from './data.js?v=20';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'hearthvale.save';        // alte Version: ein einziger Spielstand
@@ -247,7 +247,8 @@ function showHelp(first) {
       </ul></div>
       <div class="box"><h3>Deine Siedlung</h3><ul>
         <li>Unter <b>Bauen</b> stellst du Gebäude auf. Freie Siedler bauen sie und arbeiten danach darin. Beim Bauen kannst du die Karte ziehen oder auf die Minikarte klicken, um weiter weg zu bauen.</li>
-        <li>Jeder Siedler isst abends 1 Portion. Satte Siedler holen neue ins Tal, solange es Betten gibt.</li>
+        <li>Jeder Siedler isst abends 1 Portion. Reicht das Essen auch für morgen, ziehen nachts bis zu 5 neue Siedler ein, solange es Betten gibt.</li>
+        <li><b>Zufriedenheit</b> (Smiley oben): Schmuck, Feste im Gasthaus, Badehaus, abwechslungsreiches Essen und schöne Häuser machen deine Siedler zufriedener. Dann arbeiten sie schneller, es ziehen mehr zu und deine Soldaten kämpfen stärker.</li>
         <li>Siedler ohne Arbeitsplatz werden <b>Träger</b>: Sie holen die Ware an den Gebäuden ab und bringen Zutaten in die Werkstätten. So können die Arbeiter weiterarbeiten.</li>
         <li>Auf gebauten <b>Wegen</b> laufen alle schneller, Träger noch einmal deutlich. Verbinde Lager und Werkstätten mit Wegen.</li>
         <li>Mit dem <b>Markt</b> verkaufst du Überschüsse, auch automatisch.</li>
@@ -274,6 +275,8 @@ function showHelp(first) {
         <li>Der <b>Geschützbauer</b> baut auf Bestellung Katapulte. Im Fenster eines Stammes schickst du sie zur Belagerung los: Sie zerstören die Hütten aus der Ferne, jede kostet den Stamm Krieger. Das Lager stürmt heraus, um sie zu zerschlagen, also schick Soldaten mit.</li>
         <li>Wachtürme lassen sich teuer zum Wehrturm und zum Bollwerk ausbauen. Dann schießen sie selbst auf Krieger in der Nähe, auch ohne Wache.</li>
         <li>Angreifen kannst du ein Lager nur aus deinen Militärgebäuden in der Nähe: Kaserne bis ${ATTACK_RANGE.barracks}, Festung bis ${ATTACK_RANGE.fort}, Wachturm bis ${ATTACK_RANGE.tower} Felder entfernt. Schieb deine Grenze mit Wachtürmen an die Stämme heran. Mit dem Werkzeug Truppen steuerst du Soldaten aber überallhin.</li>
+        <li><b>Taktik</b>: Angriffe von der Seite treffen härter, von hinten noch mehr. Schwertkämpfer treffen nach einem Anlauf mit Sturmangriff. Im Wald schützen Bäume vor Pfeilen, in deinem Land kämpfen deine Soldaten besser. Fällt ein Häuptling, wanken seine Krieger, schwer Verwundete fliehen. Im Truppen-Fenster wählst du die Haltung: Angriff, Normal oder Stellung halten.</li>
+        <li>Katapulte und Rammböcke zerstören auch das Haupthaus. Stürzt es ein, stürmen alle Krieger heraus und es kommen keine neuen mehr.</li>
         <li>Soldaten verteidigen dein Land, Bogenschützen schießen auch von Wachtürmen. Klick auf ein Stammeslager, um es anzugreifen. Erobert gehört dir das Land ringsum.</li>
         <li>Eine ausgebaute Werft baut Langboote mit mehr Plätzen und Kriegsschiffe, die bei Angriffen von der Küste aus mitschießen.</li>
       </ul></div>
@@ -435,6 +438,33 @@ function showQuests() {
 }
 
 /* ---------- Truppen ---------- */
+// Zufriedenheit: woraus sie besteht und was sie bewirkt
+function showMood() {
+  game.computeHappiness();
+  const h = Math.round(game.happiness), parts = game.happyParts || [];
+  const work = Math.round((game.moodMul() - 1) * 100), fight = Math.round((game.moraleMul() - 1) * 100);
+  const sign = (v) => (v > 0 ? `+${v}` : `${v}`);
+  openModal(`
+    <h2>Zufriedenheit: ${h} %</h2>
+    <p class="lead">Je zufriedener deine Siedler, desto schneller arbeiten sie, desto mehr ziehen nachts zu und desto stärker kämpfen deine Soldaten.</p>
+    <div class="grid2">
+      <div class="box"><h3>Woraus sie besteht</h3><ul>${parts.map((p) => `<li>${esc(p.label)}: <b>${sign(p.v)}</b></li>`).join('')}</ul></div>
+      <div class="box"><h3>Was sie bewirkt</h3><ul>
+        <li>Arbeitstempo: <b>${sign(work)} %</b></li>
+        <li>Kampfkraft der Soldaten: <b>${sign(fight)} %</b></li>
+        <li>Neue Siedler je Nacht: <b>${h >= 75 ? 'bis zu 6' : h < 30 ? 'höchstens 2' : 'bis zu 5'}</b></li>
+        ${h < 20 ? '<li><b>Achtung:</b> Bleibt die Stimmung so schlecht, ziehen Siedler weg.</li>' : ''}
+      </ul></div>
+    </div>
+    <div class="box"><h3>So wird sie besser</h3><ul>
+      <li>Schmuck unter <b>Bauen › Wohlstand</b>: Brunnen, Blumengarten, Statue, Kapelle. Je mehr Siedler, desto mehr Schmuck brauchen sie.</li>
+      <li>Ein <b>Gasthaus</b> feiert jeden Abend ein Fest, wenn Bier aus der <b>Brauerei</b> und Brot da sind. Das <b>Badehaus</b> braucht abends Holz.</li>
+      <li>Abwechslung beim Essen: Beeren, Fisch, Brot, Karotten und Kürbisse zählen einzeln.</li>
+      <li>Wohnhäuser zu Stein- und Stadthäusern ausbauen. Genug Betten bauen.</li>
+    </ul></div>
+    <div class="actions"><button class="btn primary" data-act="ok" type="button">Schließen</button></div>
+  `, (card) => card.querySelector('[data-act=ok]').addEventListener('click', closeModal));
+}
 function showTroops() {
   const ar = game.soldiers.filter((s) => s.type === 'archer').length, sw = game.soldiers.length - ar;
   const places = game.buildings.filter((b) => b.type === 'barracks' || b.type === 'tower' || b.type === 'fort');
@@ -469,6 +499,10 @@ function renderHud(force) {
   $('hEnergyBar').style.width = `${(game.energy / MAX_ENERGY) * 100}%`;
   $('hEnergy').classList.toggle('low', game.energy < 20);
   $('hPeople').textContent = `${game.workers()}/${game.settlers.length} · ${game.beds} Betten`;
+  const mood = Math.round(game.happiness == null ? 50 : game.happiness);
+  $('hMoodV').textContent = `${mood} %`;
+  $('hMood').classList.toggle('good', mood >= 70); $('hMood').classList.toggle('bad', mood < 35);
+  $('hMoodMouth').setAttribute('d', mood >= 60 ? 'M6.5 12.2q3.5 3.2 7 0' : mood >= 35 ? 'M6.8 13h6.4' : 'M6.5 14.2q3.5 -3 7 0');
   const tp = $('troops'), mil = game.soldiers.length || game.boats || game.buildings.some((b) => b.type === 'barracks');
   tp.hidden = !mil;
   if (mil) {
@@ -621,6 +655,9 @@ function renderPanel() {
         body += `<div class="row"><span>Weg an der Tür</span><b>${game.roadLinked(b) ? 'ja, Träger sind schneller' : 'nein'}</b></div>`;
       }
       if (b.type === 'house') body += `<div class="row"><span>Bewohner</span><b>${game.settlers.filter((s) => s.home === b.id).length} / ${game.bedsOf(b)}</b></div>`;
+      if (def.decor) body += `<div class="row"><span>Schmuck</span><b>+${def.decor} Punkte</b></div><div class="row"><span>Zufriedenheit im Dorf</span><b>${Math.round(game.happiness == null ? 50 : game.happiness)} %</b></div>`;
+      if (b.type === 'tavern') { const need = Math.max(1, Math.ceil(game.settlers.length / 10)); body += `<div class="row"><span>Fest heute Abend</span><span class="cost">${chip('beer', need)}${chip('bread', need)}</span></div><p>${(game.stock.beer || 0) >= need && (game.stock.bread || 0) >= need ? 'Genug im Lager, heute Abend wird gefeiert.' : 'Im Lager fehlt noch Bier oder Brot. Bau eine Brauerei.'}</p>`; }
+      if (b.type === 'bathhouse') { const need = 2 + Math.ceil(game.settlers.length / 20); body += `<div class="row"><span>Holz heute Abend</span><span class="cost">${chip('wood', need)}</span></div>`; }
       if (b.type === 'barracks') {
         const mine = game.soldiers.filter((s) => s.home === b.id), lvl = b.level || 1, L = BARRACKS_LEVELS[lvl], ord = game.ordersOf(b);
         const away = game.soldiers.filter((s) => s.campaign != null).length, elsewhere = game.soldiers.filter((s) => s.home !== b.id).length;
@@ -833,8 +870,13 @@ function renderTroopPanel(p) {
     body += `<p class="selsum">${parts.join(' · ')} ausgewählt</p><div class="troopbox">${boxes.map(([, n, ic, name]) => `<div class="tb"><span class="tbicon">${icon(ic)}</span><span class="tbname">${name}</span><b class="tbn">${n}</b><span class="tbstat">ausgewählt</span></div>`).join('')}</div>${states.length ? `<p>${states.map(([txt, n]) => `${n} ${txt}`).join(' · ')}</p>` : ''}`;
   } else body += `<p>${all.length || allV.length ? 'Noch nichts ausgewählt.' : 'Du hast noch keine Soldaten. Bilde in der Kaserne welche aus.'}</p>`;
   if (all.length || allV.length) body += `<div class="actions"><button class="btn small" data-pick="all" type="button">Alle (${all.length + allV.length})</button>${all.length ? `<button class="btn small" data-pick="sword" type="button">${icon('sword')} Schwertkämpfer</button><button class="btn small" data-pick="archer" type="button">${icon('bow')} Bogenschützen</button>` : ''}${['catapult', 'ram', 'ship'].filter(hasV).map((k) => `<button class="btn small" data-pick="${k}" type="button">${icon(k === 'ship' ? 'boat' : k)} ${VNAMES[k]}</button>`).join('')}${list.length || vl.length ? '<button class="btn small" data-pick="none" type="button">Keine</button>' : ''}</div>`;
+  if (list.length) {   // Haltung der ausgewählten Soldaten
+    const st = (k) => list.filter((s) => (s.stance || 'normal') === k).length;
+    const cur = ['aggressive', 'normal', 'hold'].find((k) => st(k) === list.length) || 'gemischt';
+    body += `<div class="row"><span>Haltung</span><span class="stepper">${[['aggressive', 'Angriff'], ['normal', 'Normal'], ['hold', 'Stellung']].map(([k, n]) => `<button class="btn small${cur === k ? ' on' : ''}" data-stance="${k}" type="button">${n}</button>`).join('')}</span></div>`;
+  }
   if (list.length || vl.length) body += '<div class="actions"><button class="btn small" data-act="find" type="button">Zu ihnen springen</button><button class="btn small" data-act="release" type="button">Zurück nach Hause</button></div>';
-  body += '<ul class="tips"><li>Tipp auf Soldaten, Katapulte, Rammböcke oder Kriegsschiffe, um sie aus- oder abzuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.</li><li>Dann tipp auf die Karte: Sie gehen oder segeln hin und halten dort die Stellung. Katapulte und Schiffe schießen dann auf alles in Reichweite.</li><li>Tipp auf ein Lager oder gezielt auf einen Turm, ein Haus oder eine Hütte: Angriff. Tipp auf einen Krieger: Katapulte und Schiffe schießen auf ihn.</li><li>Ziehen oder WASD verschiebt die Ansicht, die Minikarte springt hin. Esc oder die Hand beendet das Steuern.</li></ul>';
+  body += '<ul class="tips"><li>Tipp auf Soldaten, Katapulte, Rammböcke oder Kriegsschiffe, um sie aus- oder abzuwählen. Am Rechner: Shift halten und einen Rahmen ziehen.</li><li>Dann tipp auf die Karte: Sie gehen oder segeln hin und halten dort die Stellung. Katapulte und Schiffe schießen dann auf alles in Reichweite.</li><li>Tipp auf ein Lager oder gezielt auf einen Turm, ein Haus oder eine Hütte: Angriff. Tipp auf einen Krieger: Katapulte und Schiffe schießen auf ihn.</li><li>Taktik: Greif von der Seite oder von hinten an, das trifft härter. Schwertkämpfer treffen nach einem Anlauf mit Sturmangriff. Im Wald schützen Bäume vor Pfeilen. Fällt der Häuptling, wanken seine Krieger.</li><li>Ziehen oder WASD verschiebt die Ansicht, die Minikarte springt hin. Esc oder die Hand beendet das Steuern.</li></ul>';
   p.innerHTML = `<div class="head"><h2>Truppen steuern</h2><button class="x" data-close aria-label="Schließen">×</button></div>${body}`;
   const on = (q, fn) => p.querySelectorAll(q).forEach((el) => el.addEventListener('click', fn));
   on('[data-pick]', (e) => {
@@ -844,6 +886,7 @@ function renderTroopPanel(p) {
     if (k === 'all' || k === 'catapult' || k === 'ram' || k === 'ship') for (const v of allV) if (k === 'all' || v.kind === k) sel.add(v.id);
     renderPanel();
   });
+  on('[data-stance]', (e) => { const k = e.currentTarget.dataset.stance; game.setStance(selList(), k); game.toast(k === 'aggressive' ? 'Haltung Angriff: Sie jagen Feinde weit.' : k === 'hold' ? 'Haltung Stellung: Sie bleiben an ihrem Platz.' : 'Haltung Normal.'); renderPanel(); });
   on('[data-act=find]', () => { const l = [...selList(), ...selVehicles()]; if (!l.length) return; R.cam.x = l.reduce((a, s) => a + s.x, 0) / l.length; R.cam.y = l.reduce((a, s) => a + s.y, 0) / l.length; });
   on('[data-act=release]', () => { const l = selList(), v = selVehicles(), n = l.length + v.length; game.orderRelease(l); game.orderVehicleRelease(v); game.toast(n === 1 ? 'Geht zurück nach Hause.' : `${n} gehen zurück nach Hause.`); sel.clear(); renderPanel(); });
   p.querySelector('[data-close]').addEventListener('click', () => setTool('hand'));
@@ -1159,6 +1202,7 @@ function boot() {
   $('backBtn').addEventListener('click', () => setLook(false));
   document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
   $('hEnergy').addEventListener('click', () => { if (game) { game.toast(game.eat()); audio.play('eat'); renderHud(); } });
+  $('hMood').addEventListener('click', () => game && showMood());
   $('zoomIn').addEventListener('click', () => zoom(1));
   $('zoomOut').addEventListener('click', () => zoom(-1));
   $('helpBtn').addEventListener('click', () => game && showHelp(false));

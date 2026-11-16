@@ -4,9 +4,9 @@ import {
   G, ITEMS, CROPS, BUILDINGS, ACTIONS, FREE_GROUND, BLOCK_OBJ, DAY_START, DAY_END, SEC_PER_HOUR, DAYS_PER_SEASON, YEAR_DAYS,
   MAX_ENERGY, CAN_SIZE, SETTLER_SPEED, PLAYER_SPEED, PATH_BONUS, WORK_TIME, START_STOCK, START_COINS, SETTLER_VALUE, FOOD_ORDER, STOCK_ORDER,
   HOUSE_LEVELS, UPGRADE, CARRY_MAX, CARRIER_ROAD, OUT_MAX,
-} from './data.js?v=19';
-import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=19';
-import { Realm } from './realm.js?v=19';
+} from './data.js?v=20';
+import { World, generate, findPath, nextTo, nextToRect, mulberry, hash } from './world.js?v=20';
+import { Realm } from './realm.js?v=20';
 
 const DAY_LEN = (DAY_END - DAY_START) * SEC_PER_HOUR;
 const toB64 = (arr) => { let s = ''; for (let i = 0; i < arr.length; i += 0x8000) s += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000)); return btoa(s); };
@@ -402,7 +402,7 @@ export class Game {
   }
 
   updateSettler(s, dt) {
-    const spd = this.fed ? 1 : 0.55;
+    const spd = (this.fed ? 1 : 0.55) * (0.9 + 0.2 * (this.happiness == null ? 50 : this.happiness) / 100);
     if (s.state === 'walk') {
       const r = this.follow(s, dt * SETTLER_SPEED * spd);
       if (r === true) s.state = s.after;
@@ -1067,10 +1067,13 @@ export class Game {
     const need = this.settlers.length + this.soldiers.length;
     let got = 0;
     const eaten = {};
-    for (const k of FOOD_ORDER) {
-      while (got < need && this.stock[k] > 0) { this.stock[k]--; got += ITEMS[k].food; eaten[k] = (eaten[k] || 0) + 1; }
+    let ate = true;
+    while (got < need && ate) {   // reihum von jeder Speise etwas: Abwechslung macht zufrieden
+      ate = false;
+      for (const k of FOOD_ORDER) { if (got >= need) break; if (this.stock[k] > 0) { this.stock[k]--; got += ITEMS[k].food; eaten[k] = (eaten[k] || 0) + 1; ate = true; } }
     }
     sum.needed = need; sum.eatenItems = eaten;
+    this.foodVariety = Object.keys(eaten).length;
     const wasFed = got >= need;
     this.fed = wasFed;
     if (!wasFed) {
@@ -1078,12 +1081,22 @@ export class Game {
       sum.events.push('Es gab nicht genug zu essen. Morgen arbeiten alle langsamer.');
       if (this.starving >= 2 && this.settlers.length) { this.removeSettler(this.settlers[this.settlers.length - 1]); sum.left = 1; sum.events.push('Ein hungriger Siedler hat das Tal verlassen.'); }
     } else this.starving = 0;
+    // Gasthaus und Badehaus, dann die Stimmung für morgen; wer lange unzufrieden ist, zieht weg
+    this.eveningComforts(sum);
+    const dayNow = this.day; this.day++; this.computeHappiness(); this.day = dayNow;
+    if (this.happiness < 20) {
+      this.unhappyDays = (this.unhappyDays || 0) + 1;
+      if (this.unhappyDays >= 2 && !sum.left && this.settlers.length > 2) { this.removeSettler(this.settlers[this.settlers.length - 1]); sum.left = 1; sum.events.push('Ein unzufriedener Siedler hat das Tal verlassen. Schmuck, Feste und gutes Essen helfen.'); }
+    } else this.unhappyDays = 0;
     // Zuzug
     const houses = this.buildings.filter((b) => b.type === 'house' && b.built);
     let born = 0;
     if (wasFed) {
       const foodLeft = FOOD_ORDER.reduce((a, k) => a + this.stock[k] * ITEMS[k].food, 0);
-      const want = foodLeft >= need * 2 ? 2 : 1;
+      // bis zu 5 Neue je Nacht, wenn Betten frei sind und das Essen für morgen reicht; Zufriedenheit hilft oder bremst
+      const mood = this.happiness == null ? 50 : this.happiness;
+      let want = foodLeft >= need ? 5 : 2;
+      if (mood >= 75) want += 1; else if (mood < 30) want = Math.min(want, 2);
       for (let i = 0; i < want && this.settlers.length < this.beds; i++) {
         const home = houses.find((h) => this.settlers.filter((s) => s.home === h.id).length < this.bedsOf(h)) || houses[0];
         this.spawnSettler(home); born++;

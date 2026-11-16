@@ -49,6 +49,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .clock .when span { color: var(--muted); font-size: 12px; }
 .stat { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .energy { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; }
+.stat.mood { background: none; border: 0; padding: 0; color: inherit; }
+.stat.mood.good #hMoodV { color: #9fe08a; }
+.stat.mood.bad #hMoodV { color: #ff9a8a; }
 .energy .bar { width: 70px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.15); overflow: hidden; }
 .energy .bar i { display: block; height: 100%; background: linear-gradient(90deg, #7cc35a, #c8e06a); }
 .energy.low .bar i { background: var(--bad); }
@@ -230,6 +233,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
       <svg class="ico" viewBox="0 0 20 20"><path d="M11 1 4 11h5l-1 8 7-10h-5z" fill="#c8e06a"/></svg><span class="bar"><i id="hEnergyBar" style="width:100%"></i></span>
     </button>
     <span class="stat" title="Siedler: arbeitend / gesamt / Betten"><svg class="ico" viewBox="0 0 20 20"><circle cx="10" cy="6" r="3.5" fill="#f1c9a0"/><path d="M4 18c0-4 2.5-6.5 6-6.5s6 2.5 6 6.5z" fill="#5b7fa6"/></svg><span id="hPeople">0</span></span>
+    <button class="stat mood" id="hMood" type="button" title="Zufriedenheit deiner Siedler. Antippen für Details."><svg class="ico" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#f2c94b"/><circle cx="7.2" cy="8.2" r="1.2" fill="#5a3a20"/><circle cx="12.8" cy="8.2" r="1.2" fill="#5a3a20"/><path id="hMoodMouth" d="M6.5 12.2q3.5 3.2 7 0" stroke="#5a3a20" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span id="hMoodV">50 %</span></button>
   </div>
   <div class="glass res" id="res"></div>
   <button class="glass troops" id="troops" type="button" title="Alle Truppen ansehen" hidden></button>
@@ -271,6 +275,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 <script src="../lb-config.js"></script>
 <script src="../lb.js"></script>
-<script type="module" src="js/main.js?v=19"></script>
+<script type="module" src="js/main.js?v=20"></script>
 </body>
 </html>

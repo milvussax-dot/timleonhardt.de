@@ -1,7 +1,7 @@
 // Reich: Land und Grenzen, Erkundung, fremde Stämme, Soldaten und Kämpfe, Boote, Ausbau, Schatztruhen, Ziele.
 // Die Methoden werden in sim.js an die Klasse Game gehängt und arbeiten mit deren Zustand.
-import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM, RAM_RECIPE, THIEF, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=19';
-import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=19';
+import { G, BUILDINGS, ITEMS, TERRITORY, HOUSE_LEVELS, UPGRADE, UNITS, TRAIN_TIME, BARRACKS_LEVELS, SHIPYARD_LEVELS, TOWER_LEVELS, ATTACK_RANGE, CATAPULT, CAMP_BUILD, RAM, RAM_RECIPE, THIEF, HAPPY, WARSHIP, TRIBES, FOE, QUESTS, SEC_PER_HOUR, SETTLER_SPEED, SETTLER_VALUE, STOCK_ORDER } from './data.js?v=20';
+import { findPath, nextToRect, mulberry, hash, pickTribeSites, sprinkleChests, carveTrails } from './world.js?v=20';
 
 export const CAMP_R = 12;       // so weit reicht das Land eines Stammes
 export const FIRST_RAID = 10;   // vorher greift niemand an
@@ -175,7 +175,7 @@ export const Realm = {
   },
   // flüchtiger Zustand nach Start und Laden
   initRealm() {
-    this.foes = []; this.shots = [];
+    this.foes = []; this.shots = []; this.effects = []; this.shake = 0;
     if (!this.sieges) this.sieges = [];
     if (!this.ships) this.ships = [];
     if (!this.thieves) this.thieves = [];
@@ -197,9 +197,11 @@ export const Realm = {
     this.updateTowers(dt);
     this.updateTribeTowers(dt);
     this.updateShots(dt);
+    this.updateEffects(dt);
     if ((this.realmT -= dt) <= 0) { this.realmT = 0.5; this.updateVision(); }
     if ((this.garT -= dt) <= 0) { this.garT = 2; this.assignGarrisons(); }
     if ((this.questT -= dt) <= 0) { this.questT = 1; this.checkQuests(); }
+    if ((this.moodT = (this.moodT || 0) - dt) <= 0) { this.moodT = 3; this.computeHappiness(); }
     if (this.landDirty) { this.landDirty = false; this.recomputeLand(); }
   },
 
@@ -370,7 +372,7 @@ export const Realm = {
     if (b.type === 'siege') return !(b.orders > 0) && b.ramOrders > 0 ? RAM_RECIPE : BUILDINGS.siege.recipe;   // Katapult, sonst Rammbock
     return b.type === 'shipyard' ? SHIPYARD_LEVELS[Math.min(3, b.level || 1)].recipe : BUILDINGS[b.type].recipe;
   },
-  speedOf(b) { return b && b.type !== 'house' && b.type !== 'shipyard' && (b.level || 1) >= 2 ? UPGRADE.speed : 1; },
+  speedOf(b) { return (b && b.type !== 'house' && b.type !== 'shipyard' && (b.level || 1) >= 2 ? UPGRADE.speed : 1) * this.moodMul(); },
   radiusOf(b) {
     if (b.type === 'tower') return (b.level || 1) >= 2 ? TOWER_LEVELS[Math.min(3, b.level)].range : 0;   // Schussweite
     const def = BUILDINGS[b.type]; return (def.radius || 0) + (def.job && def.job !== 'farm' && (b.level || 1) >= 2 ? UPGRADE.radius : 0);
@@ -419,9 +421,9 @@ export const Realm = {
   soldierCap(b) { return b.type === 'barracks' ? BARRACKS_LEVELS[Math.min(3, b.level || 1)].cap : BUILDINGS[b.type].garrison || 0; },
   assignedTo(b) { let n = 0; for (const s of this.soldiers) if (s.home === b.id) n++; return n; },
   unitOf(s) { return UNITS[s.type] || UNITS.sword; },
-  maxHp(s) { return this.unitOf(s).hp + s.rank * 3 + BARRACKS_LEVELS[s.drill || 1].hp * (s.type === 'archer' ? 0.75 : 1); },
+  maxHp(s) { return (this.unitOf(s).hp + s.rank * 3 + BARRACKS_LEVELS[s.drill || 1].hp * (s.type === 'archer' ? 0.75 : 1)) * this.moraleMul(); },
   atkOf(u) {
-    if (u.kind === 'soldier') return this.unitOf(u).atk + u.rank * 0.6 + BARRACKS_LEVELS[u.drill || 1].atk * (u.type === 'archer' ? 0.7 : 1);
+    if (u.kind === 'soldier') return (this.unitOf(u).atk + u.rank * 0.6 + BARRACKS_LEVELS[u.drill || 1].atk * (u.type === 'archer' ? 0.7 : 1)) * this.moraleMul();
     if (u.kind === 'ship') return WARSHIP.atk;
     return u.atk;
   },
@@ -623,7 +625,8 @@ export const Realm = {
       case 'fight': {
         const f = this.foes.find((x) => x.id === s.foe);
         // aufgeben nur, wenn der Feind nicht mehr nah ist und weit weg vom Platz oder Zuhause (sonst pendelt der Soldat)
-        const tooFar = !s.ordered && f && dist(s, f) > CONTACT_R + 2 && (s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > 12
+        const leash = s.stance === 'hold' ? 3 : s.stance === 'aggressive' ? 22 : 12;
+        const tooFar = !s.ordered && f && (s.stance === 'hold' && s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > leash : dist(s, f) > CONTACT_R + 2) && (s.post ? Math.hypot(f.x - s.post.x, f.y - s.post.y) > leash
           : s.campaign == null && home && Math.hypot(f.x - home.x, f.y - home.y) > 30 && !this.inLand(Math.floor(f.x), Math.floor(f.y)));
         const giveUp = !f || (s.stuckT || 0) > 3 || tooFar;
         if (giveUp) {
@@ -663,7 +666,7 @@ export const Realm = {
         s.hp = Math.min(this.maxHp(s), s.hp + dt * 0.25);
         if ((s.think -= dt) > 0) return;
         s.think = 0.4;
-        const f = this.nearestFoe(s.x, s.y, s.type === 'archer' ? this.rangeOf(s) + 1.5 : 6);
+        const f = this.nearestFoe(s.x, s.y, s.type === 'archer' ? this.rangeOf(s) + 1.5 : 6 * this.stanceR(s));
         if (f) { s.foe = f.id; s.state = 'fight'; s.path = null; s.stuckT = 0; return; }
         if (!s.post) { s.state = 'return'; return; }
         if (Math.hypot(s.x - s.post.x - 0.5, s.y - s.post.y - 0.5) > 1.2) { s.state = 'move'; s.path = null; s.repath = 0; }
@@ -676,20 +679,38 @@ export const Realm = {
   canStand(x, y) { return this.world.walkable(x, y); },
   // hingehen und dort die Stellung halten; Schwertkämpfer nach vorn, Bogenschützen dahinter
   orderMove(list, tx, ty) {
-    const spots = [];
-    for (let r = 0; r <= 8 && spots.length < list.length; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-      if (this.canStand(tx + dx, ty + dy)) spots.push({ x: tx + dx, y: ty + dy });
-    }
-    if (!spots.length) return 'Dort können keine Soldaten stehen.';
-    const sorted = [...list].sort((a, c) => (a.type === 'archer') - (c.type === 'archer'));
-    sorted.forEach((s, i) => {
+    if (!list.length) return null;
+    const cx = list.reduce((a, s) => a + s.x, 0) / list.length, cy = list.reduce((a, s) => a + s.y, 0) / list.length;
+    let dx = tx + 0.5 - cx, dy = ty + 0.5 - cy;
+    const L = Math.hypot(dx, dy);
+    if (L < 1) { dx = 0; dy = 1; } else { dx /= L; dy /= L; }
+    const px = -dy, py = dx, used = new Set(), slots = [];
+    const place = (group, back) => {
+      const perRow = Math.max(3, Math.min(8, Math.ceil(Math.sqrt(group.length * 2))));
+      group.forEach((s, i) => {
+        const row = Math.floor(i / perRow), inRow = Math.min(perRow, group.length - row * perRow), col = (i % perRow) - (inRow - 1) / 2;
+        const x = Math.round(tx + px * col - dx * (back + row)), y = Math.round(ty + py * col - dy * (back + row));
+        let spot = null;
+        for (let r = 0; r <= 4 && !spot; r++) for (let oy = -r; oy <= r && !spot; oy++) for (let ox = -r; ox <= r && !spot; ox++) {
+          if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+          if (this.canStand(x + ox, y + oy) && !used.has((y + oy) * 4096 + x + ox)) spot = { x: x + ox, y: y + oy };
+        }
+        if (spot) { used.add(spot.y * 4096 + spot.x); slots.push([s, spot]); }
+      });
+    };
+    const swords = list.filter((s) => s.type !== 'archer'), archers = list.filter((s) => s.type === 'archer');
+    place(swords, 0);
+    place(archers, swords.length ? 2 : 0);
+    if (!slots.length) return 'Dort können keine Soldaten stehen.';
+    for (const [s, p] of slots) {
       if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
-      const p = spots[Math.min(i, spots.length - 1)];
       Object.assign(s, { post: { x: p.x, y: p.y }, campaign: null, foe: null, ordered: false, state: 'move', path: null, repath: 0, stuckT: 0 });
-    });
+    }
     return null;
   },
+  // Haltung: 'aggressive' jagt weit, 'hold' bleibt am Platz, sonst normal
+  setStance(list, stance) { for (const s of list) s.stance = stance === 'normal' ? null : stance; },
+  stanceR(s) { return s.stance === 'aggressive' ? 1.6 : s.stance === 'hold' ? 0.5 : 1; },
   orderAttackFoe(list, foe) {
     for (const s of list) {
       if (s.state === 'garrison') { const home = this.byId(s.home), d = home && this.door(home); if (d) { s.x = d.x + 0.5; s.y = d.y + 0.5; } }
@@ -712,7 +733,7 @@ export const Realm = {
     return best;
   },
   // Feind in Kontaktweite eines Soldaten
-  contactFoe(s) { return this.nearestFoe(s.x, s.y, s.type === 'archer' ? Math.max(CONTACT_R, this.rangeOf(s) + 1) : CONTACT_R); },
+  contactFoe(s) { return this.nearestFoe(s.x, s.y, s.type === 'archer' ? Math.max(CONTACT_R * this.stanceR(s), this.rangeOf(s) + 1) : CONTACT_R * this.stanceR(s)); },
   // wer getroffen wird, wehrt sich (gegen Türme und Schiffe geht das nicht)
   provoke(u, by) {
     if (!by || u.hp <= 0 || u.state === 'fight' || u.state === 'garrison' || u.mode === 'thief') return;
@@ -729,6 +750,14 @@ export const Realm = {
     }
     return best;
   },
+  // nächstes Ziel für einen Krieger: Soldaten, Katapulte, Rammböcke; Bogenschützen auch Kriegsschiffe
+  nearestTarget(f, r) {
+    let best = this.nearestSoldier(f.x, f.y, r), bd = best ? Math.hypot(best.x - f.x, best.y - f.y) : r;
+    for (const c of this.sieges) { const d = Math.hypot(c.x - f.x, c.y - f.y); if (d <= bd) { bd = d; best = c; } }
+    if (f.range > 1.5) for (const c of this.ships) { const d = Math.hypot(c.x - f.x, c.y - f.y); if (d <= Math.min(bd, f.range + 0.5)) { bd = d; best = c; } }
+    return best;
+  },
+  unitById(id) { return this.soldiers.find((s) => s.id === id) || this.sieges.find((c) => c.id === id) || this.ships.find((c) => c.id === id) || null; },
   nearestSoldier(x, y, r) {
     let best = null, bd = r;
     for (const s of this.soldiers) {
@@ -790,9 +819,64 @@ export const Realm = {
   },
   strike(a, d) {
     const dmg = this.atkOf(a) * (0.75 + this.rng() * 0.5);
-    d.hp -= dmg; d.hurtT = 0.25; a.swing = 0.3;
-    this.sound('clash', d.x, d.y);
-    if (d.hp <= 0) this.killUnit(d, a); else this.provoke(d, a);
+    this.hurt(a, d, dmg, 'melee');
+  },
+  // Schaden an Soldat, Krieger oder Fahrzeug, mit Taktik-Bonus (Flanke, Sturmangriff, Deckung, Moral)
+  hurt(a, d, dmg, how) {
+    dmg *= this.tacticFactor(a, d, how);
+    if (d.kind === 'ram') dmg *= RAM.armor;
+    d.hp -= dmg; d.hurtT = 0.25; if (a && how === 'melee') a.swing = 0.3;
+    if (how === 'melee') { this.sound('clash', d.x, d.y); this.burst((a.x + d.x) / 2, (a.y + d.y) / 2 - 0.45, 'spark'); }
+    if (d.hp > 0) {
+      // schwer verwundete Krieger fliehen manchmal (der Häuptling nie)
+      if (d.kind === 'foe' && d.type !== 'chief' && d.mode !== 'thief' && !d.fled && d.hp < d.maxHp * 0.25 && this.rng() < 0.3) { this.foeFlee(d); return; }
+      if (d.kind === 'soldier' || d.kind === 'foe') this.provoke(d, a);
+      return;
+    }
+    if (d.kind === 'catapult' || d.kind === 'ram') this.destroySiege(d);
+    else if (d.kind === 'ship') this.destroyShip(d);
+    else if (d.kind === 'thief') this.killThief(d);
+    else this.killUnit(d, a);
+  },
+  // Taktik: Flanke und Rücken, Sturmangriff, Deckung im Wald, Heimvorteil, wankende Krieger
+  tacticFactor(a, d, how) {
+    if (!a || !d) return 1;
+    let f = 1, tag = null;
+    const unit = (u) => u.kind === 'soldier' || u.kind === 'foe';
+    if (unit(a) && unit(d) && d.facing != null && d.state !== 'garrison') {
+      const fx = [0, 1, 0, -1][d.facing], fy = [-1, 0, 1, 0][d.facing], ax = a.x - d.x, ay = a.y - d.y, len = Math.hypot(ax, ay) || 1;
+      const dot = (ax * fx + ay * fy) / len;   // 1 = von vorn, -1 = von hinten
+      if (dot < -0.5) { f *= 1.5; tag = 'Rücken!'; } else if (dot < 0.3) { f *= 1.25; tag = 'Flanke!'; }
+    }
+    if (how === 'melee' && a.kind === 'soldier' && a.type !== 'archer') {
+      const lh = a.lastHit;
+      if (!lh || Math.hypot(a.x - lh.x, a.y - lh.y) >= 3) { f *= 1.6; tag = 'Sturmangriff!'; }
+      a.lastHit = { x: a.x, y: a.y };
+    }
+    if (how === 'shot' && unit(d)) { const w = this.world, k = w.i(Math.max(0, Math.min(w.w - 1, Math.floor(d.x))), Math.max(0, Math.min(w.h - 1, Math.floor(d.y)))); if (w.ground[k] === G.FOREST) f *= 0.7; }
+    if (a.kind === 'soldier' && this.inLand(Math.floor(a.x), Math.floor(a.y))) f *= 1.1;
+    if (a.kind === 'foe' && (a.shaken || 0) > this.clock) f *= 0.75;
+    if (tag && (tag === 'Sturmangriff!' || tag === 'Rücken!') && (this.tagT || 0) <= this.clock) { this.tagT = this.clock + 0.6; this.floatText(d.x, d.y - 1.1, tag, '#ffd25a'); }
+    return f;
+  },
+  // ein Krieger flieht zurück ins Lager
+  foeFlee(f) {
+    f.fled = true; f.foe = null; f.path = null; f.stuckT = 0;
+    if (f.mode === 'defend' || f.mode === 'sally') f.mode = 'raid';
+    f.state = 'flee';
+    this.floatText(f.x, f.y - 0.9, 'flieht!', '#ffe08a');
+  },
+  // kleine Effekte: Funken im Nahkampf, Staub bei Einschlägen, Trümmer beim Einsturz
+  burst(x, y, kind) {
+    if (!this.effects) this.effects = [];
+    if (this.effects.length > 80) this.effects.shift();
+    this.effects.push({ x, y, kind, t: 0, dur: kind === 'spark' ? 0.25 : kind === 'dust' ? 0.7 : 1.1, seed: this.rng() });
+    if (kind !== 'spark') this.shakeAt(x, y, kind === 'boom' ? 0.45 : 0.18);
+  },
+  shakeAt(x, y, amt) { this.shake = Math.max(this.shake || 0, amt); this.shakeX = x; this.shakeY = y; },
+  updateEffects(dt) {
+    if (this.effects) for (let i = this.effects.length - 1; i >= 0; i--) { const e = this.effects[i]; e.t += dt; if (e.t >= e.dur) this.effects.splice(i, 1); }
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
   },
   // Pfeil oder Bolzen: fliegt kurz, trifft dann (das Ziel kann nicht ausweichen)
   shoot(a, tg, from) {
@@ -812,9 +896,7 @@ export const Realm = {
       const list = sh.tkind === 'soldier' ? this.soldiers : sh.tkind === 'catapult' || sh.tkind === 'ram' ? this.sieges : sh.tkind === 'ship' ? this.ships : sh.tkind === 'thief' ? (this.thieves || []) : this.foes;
       const tg = list.find((u) => u.id === sh.tid);
       if (!tg) continue;
-      tg.hp -= sh.dmg * (tg.kind === 'ram' ? RAM.armor : 1); tg.hurtT = 0.25;
-      if (tg.hp <= 0) { if (list === this.sieges) this.destroySiege(tg); else if (list === this.ships) this.destroyShip(tg); else if (tg.kind === 'thief') this.killThief(tg); else this.killUnit(tg, sh.by); }
-      else this.provoke(tg, sh.by);
+      this.hurt(sh.by && sh.by.kind ? sh.by : null, tg, sh.dmg, 'shot');
     }
   },
   killUnit(u, by) {
@@ -838,7 +920,17 @@ export const Realm = {
       if (u.coinsStolen) { this.coins += u.coinsStolen; u.coinsStolen = 0; }
       this.toast(`Ein Dieb der ${t.name} wurde gefasst${u.loot || u.stole ? '. Die Beute ist zurück' : ''}.`);
     }
-    if (u.type === 'chief') { t.chiefDead = true; t.chiefOut = false; this.toast(`Der Häuptling der ${t.name} ist gefallen!`); }
+    if (u.type === 'chief') {
+      t.chiefDead = true; t.chiefOut = false;
+      let fled = 0;
+      for (const f of this.foes) {
+        if (f.tribe !== u.tribe || f.mode === 'thief' || Math.hypot(f.x - u.x, f.y - u.y) > 18) continue;
+        f.shaken = this.clock + 20;
+        if (this.rng() < 0.35) { this.foeFlee(f); fled++; }
+      }
+      this.toast(`Der Häuptling der ${t.name} ist gefallen! Seine Krieger wanken${fled ? `, ${fled} fliehen` : ''}.`);
+      this.burst(u.x, u.y - 0.4, 'boom');
+    }
     this.today.beaten = (this.today.beaten || 0) + 1;
     if (u.loot) {
       for (const k in u.loot) { this.stock[k] = (this.stock[k] || 0) + u.loot[k]; if (t.raid && t.raid.stolen[k]) t.raid.stolen[k] -= u.loot[k]; }
@@ -895,7 +987,7 @@ export const Realm = {
       // Wettrüsten: je größer dein Heer und je später im Jahr, desto mehr Krieger
       t.cap0 = t.cap0 || t.cap;
       t.cap = t.cap0 + Math.round(this.day * 0.4 + army * 0.25);
-      t.acc += t.grow * (1 + this.day / 20);
+      if (!t.hallDown) t.acc += t.grow * (1 + this.day / 20);
       t.weapons = Math.min(60, (t.weapons || 0) + 1);
       const tg = t.goods || (t.goods = { coins: 0, bread: 0, wood: 0 }), tier = this.tribeTier(t);
       tg.coins = Math.min(500, (tg.coins || 0) + 8 * tier); tg.bread = Math.min(40, (tg.bread || 0) + 2); tg.wood = Math.min(60, (tg.wood || 0) + 3);
@@ -952,6 +1044,7 @@ export const Realm = {
     return true;
   },
   plunder(f) {
+    this.raidedDay = this.day;
     const t = this.tribes[f.tribe];
     let budget = 60;
     const items = STOCK_ORDER.filter((k) => (this.stock[k] || 0) > 0).sort((a, c) => this.stock[c] * ITEMS[c].price - this.stock[a] * ITEMS[a].price);
@@ -995,7 +1088,7 @@ export const Realm = {
     if (f.wait > 0) { f.wait -= dt; return; }
     const t = this.tribes[f.tribe], door = this.campDoor(t);
     if (f.state === 'fight') {
-      const tg = this.soldiers.find((s) => s.id === f.foe);
+      const tg = this.unitById(f.foe);
       const tooFar = f.mode === 'defend' && tg && dist(f, tg) > CONTACT_R + 2 && Math.hypot(tg.x - t.cx - 0.5, tg.y - t.cy - 0.5) > ALARM_R + 3;
       if (!tg || tg.state === 'garrison' || tooFar || (f.stuckT || 0) > 3) {
         f.foe = null; f.stuckT = 0; f.path = null;
@@ -1009,7 +1102,7 @@ export const Realm = {
     if (f.mode === 'thief') return this.updateFoeThief(f, t, door, dt);
     if ((f.think -= dt) <= 0) {
       f.think = 0.4;
-      const s = this.nearestSoldier(f.x, f.y, f.mode === 'defend' ? 8 : f.range > 1.5 ? Math.max(CONTACT_R, f.range + 1) : CONTACT_R);
+      const s = this.nearestTarget(f, f.mode === 'defend' ? 8 : f.range > 1.5 ? Math.max(CONTACT_R, f.range + 1) : CONTACT_R);
       if (s && (f.mode !== 'defend' || Math.hypot(s.x - t.cx - 0.5, s.y - t.cy - 0.5) <= ALARM_R + 2)) { f.foe = s.id; f.state = 'fight'; f.path = null; f.repath = 0; f.stuckT = 0; return; }
     }
     if (f.mode === 'sally') {   // aus dem Lager gestürmt, um ein Katapult zu zerschlagen
@@ -1224,7 +1317,11 @@ export const Realm = {
   },
   /* ---------- Belagerung ---------- */
   // Ziele im Lager: erst Wachtürme, dann Häuser, dann Hütten
-  campTargets(t) { const b = t.builds || []; return [...b.filter((x) => x.kind === 'tower'), ...b.filter((x) => x.kind === 'house'), ...t.huts]; },
+  campTargets(t) {
+    const b = t.builds || [];
+    if (!t.hallDown) { t.hall.kind = 'hall'; if (t.hall.hp == null) t.hall.hp = CAMP_BUILD.hall.hp; }
+    return [...b.filter((x) => x.kind === 'tower'), ...b.filter((x) => x.kind === 'house'), ...t.huts, ...(t.hallDown ? [] : [t.hall])];
+  },
   firstTargets(t) { const all = this.campTargets(t); if (!all.length) return all; const kind = all[0].kind || 'hut'; return all.filter((x) => (x.kind || 'hut') === kind); },
   /* ---------- Fahrzeuge: Katapulte, Rammböcke, Kriegsschiffe ---------- */
   // Zuhause eines Fahrzeugs: Geschützbauer (sonst Kaserne oder Lager), Schiffe an der Werft
@@ -1344,7 +1441,7 @@ export const Realm = {
     for (let ti = 0; ti < this.tribes.length; ti++) {
       const t = this.tribes[ti];
       if (t.defeated || Math.hypot(t.cx - c.x, t.cy - c.y) > 16) continue;
-      for (const s of this.campTargets(t)) if (c.x >= s.x - 0.7 && c.x <= s.x + 2.7 && c.y >= s.y - 0.7 && c.y <= s.y + 2.7) return { ti, s };
+      for (const s of this.campTargets(t)) if (c.x >= s.x - 0.7 && c.x <= s.x + (s.w || 2) + 0.7 && c.y >= s.y - 0.7 && c.y <= s.y + (s.h || 2) + 0.7) return { ti, s };
     }
     return null;
   },
@@ -1429,7 +1526,7 @@ export const Realm = {
           const cands = (ord ? [ord] : []).concat(all.filter((x) => x !== ord && !skip.includes(x.x * 4096 + x.y))
             .sort((a, b) => (rank[a.kind] ?? 2) - (rank[b.kind] ?? 2) || Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y)));
           for (const tg of cands.slice(0, 4)) {
-            r = this.unitGo(c, nextToRect(tg.x, tg.y, 2, 2), tg.x + 1, tg.y + 1, 300000);
+            r = this.unitGo(c, nextToRect(tg.x, tg.y, tg.w || 2, tg.h || 2), tg.x + 1, tg.y + 1, 300000);
             if (r) { c.target = { x: tg.x, y: tg.y }; break; }
             skip.push(tg.x * 4096 + tg.y);
             if (tg === ord) c.order = null;
@@ -1462,6 +1559,7 @@ export const Realm = {
   stoneHit(sh) {
     const t = this.tribes[sh.tribe];
     this.sound('crash', sh.x1, sh.y1);
+    this.burst(sh.x1, sh.y1 - 0.2, 'dust');
     if (!t || t.defeated) return;
     for (const f of this.foes.slice()) if (f.tribe === sh.tribe && Math.hypot(f.x - sh.x1, f.y - sh.y1) < 1.6) { f.hp -= CATAPULT.splash; f.hurtT = 0.25; if (f.hp <= 0) this.killUnit(f, null); }
     const h = this.campTargets(t).find((x) => x.x === sh.hx && x.y === sh.hy);
@@ -1470,10 +1568,23 @@ export const Realm = {
   damageStructure(t, h, dmg) {
     const max = h.kind ? CAMP_BUILD[h.kind].hp : CATAPULT.hutHp;
     h.hp = (h.hp == null ? max : h.hp) - dmg;
+    if (h.kind === 'hall') {   // Treffer aufs Haupthaus kosten Krieger; stürzt es ein, stürmen alle heraus
+      const k = Math.min(t.warriors, CAMP_BUILD.hall.warriors * dmg);
+      if (k) { t.warriors -= k; this.floatText(h.x + 1.5, h.y + 0.5, `−${k} Krieger`, '#ffb35a'); }
+      if (h.hp > 0) return;
+      t.hallDown = true;
+      this.burst(h.x + 1.5, h.y + 1.5, 'boom');
+      this.floatText(h.x + 1.5, h.y, 'eingestürzt', '#ffb35a');
+      this.toast(`Das Haupthaus der ${t.name} ist eingestürzt! Alle Krieger stürmen heraus, neue kommen keine mehr.`);
+      this.today.events.push(`Das Haupthaus der ${t.name} wurde zerstört.`);
+      this.alarmCamp(t);
+      return;
+    }
     if (h.hp > 0) return;
     const ti = this.tribes.indexOf(t), w = this.world;
     if (h.kind) t.builds = t.builds.filter((x) => x !== h); else t.huts = t.huts.filter((x) => x !== h);
     for (let dy = 0; dy < h.h; dy++) for (let dx = 0; dx < h.w; dx++) { const k = w.i(h.x + dx, h.y + dy); if (w.tstruct[k] === ti) w.tstruct[k] = -1; w.touch(h.x + dx, h.y + dy); }
+    this.burst(h.x + (h.w || 2) / 2, h.y + (h.h || 2) / 2, 'boom');
     const per = h.kind === 'house' ? CAMP_BUILD.house.warriors : h.kind === 'tower' ? 0 : CATAPULT.perHut;
     const lost = Math.min(t.warriors, per);
     t.warriors -= lost;
@@ -1503,6 +1614,44 @@ export const Realm = {
     this.sound('crash', c.x, c.y);
     this.floatText(c.x, c.y - 0.6, 'zerschlagen', '#ff9a8a');
     this.toast(c.kind === 'ram' ? 'Ein Rammbock wurde zerschlagen.' : 'Ein Katapult wurde zerschlagen.');
+  },
+  /* ---------- Wohlstand ---------- */
+  // Zufriedenheit 0–100 aus Essen, Wohnen, Schmuck, Festen und Sorgen; wirkt auf Arbeit, Zuzug und Kampfkraft
+  computeHappiness() {
+    const parts = [], add = (label, v) => { if (Math.round(v)) parts.push({ label, v: Math.round(v) }); };
+    const n = Math.max(1, this.settlers.length);
+    add('Grundstimmung', HAPPY.base);
+    if (this.starving > 0) add('Hunger', -HAPPY.hunger); else if (this.fed) add('Alle sind satt', HAPPY.fed);
+    add('Abwechslung beim Essen', Math.min(5, this.foodVariety || 0) * HAPPY.variety);
+    let lv2 = 0, lv3 = 0;
+    for (const s of this.settlers) { const h = s.home != null ? this.byId(s.home) : null, l = h && h.type === 'house' ? h.level || 1 : 1; if (l >= 2) lv2++; if (l >= 3) lv3++; }
+    add('Schöne Häuser', HAPPY.homes * (lv2 + lv3 * 0.5) / n);
+    let decor = 0;
+    for (const b of this.buildings) if (b.built && BUILDINGS[b.type].decor) decor += BUILDINGS[b.type].decor;
+    add('Schmuck im Dorf', Math.min(HAPPY.decorMax, decor * 10 / Math.max(10, n)));
+    if (this.feastDay === this.day) add('Fest im Gasthaus', HAPPY.feast);
+    if (this.bathDay === this.day) add('Badehaus', HAPPY.bath);
+    if (this.settlers.length > this.beds) add('Zu wenige Betten', -HAPPY.crowd * Math.min(1, (this.settlers.length - this.beds) / Math.max(1, this.beds)));
+    if ((this.raidedDay == null ? -9 : this.raidedDay) >= this.day - 1) add('Überfall', -HAPPY.raided);
+    this.happiness = Math.max(0, Math.min(100, parts.reduce((a, p) => a + p.v, 0)));
+    this.happyParts = parts;
+    return this.happiness;
+  },
+  moodMul() { return 0.8 + 0.5 * (this.happiness == null ? 50 : this.happiness) / 100; },     // Arbeitstempo 0,8 … 1,3
+  moraleMul() { return 0.9 + 0.25 * (this.happiness == null ? 50 : this.happiness) / 100; },  // Kampfkraft 0,9 … 1,15
+  // abends: Fest im Gasthaus und Badehaus, wenn die Vorräte reichen
+  eveningComforts(sum) {
+    const n = Math.max(1, this.settlers.length);
+    if (this.buildings.some((b) => b.type === 'tavern' && b.built)) {
+      const need = Math.max(1, Math.ceil(n / 10));
+      if ((this.stock.beer || 0) >= need && (this.stock.bread || 0) >= need) { this.stock.beer -= need; this.stock.bread -= need; this.feastDay = this.day + 1; sum.events.push(`Fest im Gasthaus: ${need} Bier und ${need} Brot. Morgen sind alle viel zufriedener.`); }
+      else sum.events.push(`Im Gasthaus fehlt es an Bier oder Brot (${need} von beidem). Kein Fest heute.`);
+    }
+    if (this.buildings.some((b) => b.type === 'bathhouse' && b.built)) {
+      const need = 2 + Math.ceil(n / 20);
+      if ((this.stock.wood || 0) >= need) { this.stock.wood -= need; this.bathDay = this.day + 1; }
+      else sum.events.push(`Das Badehaus braucht ${need} Holz am Abend.`);
+    }
   },
   /* ---------- Diebe ---------- */
   makeThief(home, x, y, id) { return { id: id != null ? id : this.nextId++, kind: 'thief', home, x, y, state: 'home', target: null, loot: null, hp: THIEF.hp, maxHp: THIEF.hp, spotted: false, path: null, pi: 0, facing: 2, walkT: 0, timer: 0, hurtT: 0 }; },
@@ -1636,6 +1785,7 @@ export const Realm = {
     if (f.state === 'steal') {
       if ((f.timer -= dt) > 0) return;
       const n = Math.min(this.coins, Math.max(10, Math.round(this.coins * 0.05)), 120);
+      this.raidedDay = this.day;
       if (n >= 10) { this.coins -= n; f.coinsStolen = n; f.stole = true; this.toast(`Ein Dieb der ${t.name} hat ${n} Münzen gestohlen! Fang ihn, bevor er entkommt.`); }
       else {
         const k = STOCK_ORDER.filter((x) => (this.stock[x] || 0) > 0).sort((a, c) => ITEMS[c].price - ITEMS[a].price)[0];
@@ -1698,11 +1848,12 @@ export const Realm = {
   saveRealm() {
     return {
       tribes: this.tribes.map((t, i) => ({ ...t, raid: null, sallyT: 0, warriors: t.warriors + this.foesOf(i) })),
-      raidCalm: this.raidCalm || 0, thiefCalm: this.thiefCalm || 0, bal: BALANCE, catapults: this.catapults || 0, rams: this.rams || 0,
+      raidCalm: this.raidCalm || 0, thiefCalm: this.thiefCalm || 0,
+      mood: { happiness: this.happiness == null ? 50 : this.happiness, feastDay: this.feastDay || 0, bathDay: this.bathDay || 0, foodVariety: this.foodVariety || 0, unhappyDays: this.unhappyDays || 0, raidedDay: this.raidedDay == null ? -9 : this.raidedDay }, bal: BALANCE, catapults: this.catapults || 0, rams: this.rams || 0,
       thieves: (this.thieves || []).map((h) => ({ id: h.id, home: h.home, x: h.x, y: h.y })),
       sieges: this.sieges.map((c) => ({ id: c.id, kind: c.kind, home: c.home, x: c.x, y: c.y, hp: c.hp })),
       ships: this.ships.map((c) => ({ id: c.id, home: c.home, x: c.x, y: c.y, hp: c.hp })),
-      soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null })),
+      soldiers: this.soldiers.map((s) => ({ id: s.id, type: s.type || 'sword', drill: s.drill || 1, x: s.x, y: s.y, hp: s.hp, rank: s.rank, kills: s.kills, home: s.home, arrived: !!s.arrived, post: s.post || null, stance: s.stance || null })),
       boats: this.boats, fleet: this.fleet, quests: this.quests, stats: this.stats,
     };
   },
@@ -1719,6 +1870,8 @@ export const Realm = {
     });
     this.markCamps();
     this.raidCalm = d.raidCalm || 0;
+    const m = d.mood || {};
+    Object.assign(this, { happiness: m.happiness == null ? 50 : m.happiness, feastDay: m.feastDay || 0, bathDay: m.bathDay || 0, foodVariety: m.foodVariety || 0, unhappyDays: m.unhappyDays || 0, raidedDay: m.raidedDay == null ? -9 : m.raidedDay });
     this.catapults = d.catapults || 0; this.rams = d.rams || 0; this.thiefCalm = d.thiefCalm || 0;
     this.thieves = (d.thieves || []).map((h) => this.makeThief(h.home, h.x, h.y, h.id));
     // Fahrzeuge: gespeicherte Einheiten, sonst (ältere Stände) aus den Zahlen an Geschützbauer und Werft

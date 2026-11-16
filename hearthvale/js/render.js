@@ -1,6 +1,7 @@
 // Grafik: Boden-Kacheln, Objekte, Gebäude, Stammeslager, Figuren, Grenzen, Nebel, Licht, Wetter, Minikarte
-import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY, CAMP_BUILD } from './data.js?v=19';
-import { cellRand } from './world.js?v=19';
+import { G, TILE, BUILDINGS, CROPS, ITEMS, TERRITORY, CAMP_BUILD } from './data.js?v=20';
+const shakeRnd = () => Math.random() - 0.5;
+import { cellRand } from './world.js?v=20';
 
 const SEASON = {
   grass:  ['#86c35a', '#6cb04a', '#b3ad4e', '#eef3f6'],
@@ -227,6 +228,7 @@ export class Renderer {
     if (b.type === 'fort') return this.fort(g, b, X, Y, S, t, game);
     if (b.type === 'mine') return this.mine(g, b, X, Y, S, t, game);
     if (b.type === 'charcoal') return this.kiln(g, b, X, Y, S, t, game);
+    if (b.type === 'well' || b.type === 'garden' || b.type === 'statue') return this.decor(g, b, X, Y, S, t, game);
     const lvl = b.level || 1, tall = b.type === 'house' && lvl >= 3;
     const stone = STONE_TYPES.has(b.type) || (b.type === 'house' && lvl >= 2);
     const wallC = stone ? C.stoneWall : C.wall;
@@ -295,6 +297,10 @@ export class Renderer {
       else if (game.boats > 0) this.boat(g, X - S * 0.25, Y + Ht * 0.92, S * (lvl >= 2 ? 1.1 : 0.9));
     });
     if (lvl >= 2 && b.type !== 'house') prop(() => { this.flag(g, X + S * 0.16, by + 2, S * 0.55, '#f2b84b', t); if (lvl >= 3) this.flag(g, X + S * 0.42, by + 2, S * 0.7, '#f2b84b', t + 1); });
+    if (b.type === 'chapel') prop(() => { const cx = X + Wd / 2; g.fillStyle = shade(C.stoneWall, -0.08); g.fillRect(cx - S * 0.16, by - S * 0.7, S * 0.32, S * 0.55); g.fillStyle = def.roof; g.beginPath(); g.moveTo(cx - S * 0.24, by - S * 0.68); g.lineTo(cx, by - S * 1.05); g.lineTo(cx + S * 0.24, by - S * 0.68); g.fill(); g.fillStyle = '#e0b34a'; g.beginPath(); g.arc(cx, by - S * 0.45, S * 0.08, Math.PI, 0); g.fill(); g.fillRect(cx - S * 0.09, by - S * 0.46, S * 0.18, S * 0.05); });
+    if (b.type === 'tavern') prop(() => { const sx = X + Wd + S * 0.02, sy = by + S * 0.1; g.strokeStyle = '#5a3a20'; g.lineWidth = 2; g.beginPath(); g.moveTo(sx - S * 0.3, sy); g.lineTo(sx, sy); g.lineTo(sx, sy + S * 0.08); g.stroke(); g.fillStyle = '#7a5230'; g.fillRect(sx - S * 0.17, sy + S * 0.08, S * 0.34, S * 0.26); g.fillStyle = '#e8c25a'; g.fillRect(sx - S * 0.08, sy + S * 0.13, S * 0.13, S * 0.16); g.fillStyle = '#f7f2e3'; g.fillRect(sx - S * 0.09, sy + S * 0.11, S * 0.15, S * 0.04); g.strokeStyle = '#e8c25a'; g.lineWidth = 1.5; g.beginPath(); g.arc(sx + S * 0.07, sy + S * 0.21, S * 0.04, -1.4, 1.4); g.stroke(); });
+    if (b.type === 'bathhouse') prop(() => { for (let i = 0; i < 3; i++) { const p = ((t * 0.4 + i / 3) % 1); g.fillStyle = `rgba(240,245,250,${0.55 * (1 - p)})`; g.beginPath(); g.arc(X + Wd * (0.35 + i * 0.15) + Math.sin(t * 2 + i) * 3, by - S * 0.2 - p * S * 0.9, S * (0.1 + p * 0.12), 0, 7); g.fill(); } });
+    if (b.type === 'brewery') prop(() => { for (const [dx, dy] of [[-0.42, 0.72], [-0.2, 0.78]]) { const bx2 = X + S * dx + S * 0.3, by2 = Y + Ht * dy; g.fillStyle = '#9a6a3a'; g.beginPath(); g.ellipse(bx2, by2, S * 0.13, S * 0.17, 0, 0, 7); g.fill(); g.strokeStyle = '#5a3a20'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(bx2 - S * 0.13, by2 - S * 0.06); g.lineTo(bx2 + S * 0.13, by2 - S * 0.06); g.moveTo(bx2 - S * 0.13, by2 + S * 0.06); g.lineTo(bx2 + S * 0.13, by2 + S * 0.06); g.stroke(); } });
     if (b.type === 'storage') prop(() => { for (const [dx, c] of [[-0.05, '#b07a42'], [0.18, '#9a6a3a']]) { g.fillStyle = c; g.fillRect(X + Wd + S * dx - S * 0.4, Y + Ht * 0.7, S * 0.3, S * 0.3); g.strokeStyle = '#6b4228'; g.strokeRect(X + Wd + S * dx - S * 0.4, Y + Ht * 0.7, S * 0.3, S * 0.3); } });
     if (b.type === 'woodcutter' || b.type === 'sawmill') prop(() => { g.fillStyle = '#8a5a30'; for (let i = 0; i < 3; i++) { g.beginPath(); g.ellipse(X - S * 0.02, Y + Ht * 0.92 - i * S * 0.13, S * 0.2, S * 0.07, 0, 0, 7); g.fill(); g.fillStyle = '#c9a06a'; g.beginPath(); g.arc(X - S * 0.2, Y + Ht * 0.92 - i * S * 0.13, S * 0.06, 0, 7); g.fill(); g.fillStyle = '#8a5a30'; } });
     if (b.type === 'sawmill') prop(() => { const ang = b.worker != null ? t * 6 : 0; g.translate(X + Wd - S * 0.1, Y + Ht * 0.78); g.rotate(ang); g.fillStyle = '#c8ccd2'; g.beginPath(); for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6, r = i % 2 ? S * 0.18 : S * 0.24; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.fill(); });
@@ -408,7 +414,31 @@ export class Renderer {
   badge(g, x, y, S) { g.fillStyle = 'rgba(0,0,0,0.55)'; g.beginPath(); g.arc(x, y, S * 0.2, 0, 7); g.fill(); g.fillStyle = '#ffd25a'; g.font = `700 ${Math.round(S * 0.3)}px Nunito, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', x, y + 1); }
 
   /* ---------- Stammeslager ---------- */
+  // Trümmer eines eingestürzten Haupthauses: verkohlte Balken und Rauch
+  ruins(g, X, Y, S, t) {
+    const Wd = 3 * S, bot = Y + 3 * S * 0.96;
+    g.fillStyle = 'rgba(40,30,22,0.55)'; g.beginPath(); g.ellipse(X + Wd / 2, bot - S * 0.4, Wd * 0.5, S * 0.55, 0, 0, 7); g.fill();
+    g.strokeStyle = '#3a2a1e'; g.lineWidth = Math.max(3, S * 0.12);
+    for (const [x1, y1, x2, y2] of [[0.3, 2.6, 1.4, 1.9], [1.1, 2.8, 2.3, 2.1], [2.6, 2.7, 1.9, 1.6], [0.6, 2.2, 0.9, 1.3]]) { g.beginPath(); g.moveTo(X + x1 * S, Y + y1 * S); g.lineTo(X + x2 * S, Y + y2 * S); g.stroke(); }
+    for (let i = 0; i < 3; i++) { const p = (t * 0.25 + i / 3) % 1; g.fillStyle = `rgba(90,90,95,${0.4 * (1 - p)})`; g.beginPath(); g.arc(X + Wd * (0.35 + i * 0.15) + Math.sin(t + i) * 4, bot - S * 0.8 - p * S * 1.6, S * (0.15 + p * 0.25), 0, 7); g.fill(); }
+  }
+  // kleine Effekte: Funken, Staub, Trümmer
+  effects(g, game, ox, oy, S) {
+    for (const e of game.effects || []) {
+      const X = ox + e.x * S, Y = oy + e.y * S, p = e.t / e.dur;
+      if (e.kind === 'spark') {
+        g.strokeStyle = `rgba(255,240,180,${1 - p})`; g.lineWidth = 2;
+        for (let i = 0; i < 6; i++) { const a = i * 1.047 + e.seed * 6, r1 = S * 0.05, r2 = S * (0.12 + p * 0.25); g.beginPath(); g.moveTo(X + Math.cos(a) * r1, Y + Math.sin(a) * r1); g.lineTo(X + Math.cos(a) * r2, Y + Math.sin(a) * r2); g.stroke(); }
+        continue;
+      }
+      const big = e.kind === 'boom';
+      g.fillStyle = `rgba(150,130,105,${(big ? 0.55 : 0.45) * (1 - p)})`;
+      for (let i = 0; i < (big ? 7 : 4); i++) { const a = i * 2.4 + e.seed * 6, r = S * (big ? 0.6 : 0.3) * (0.4 + p); g.beginPath(); g.arc(X + Math.cos(a) * r, Y + Math.sin(a) * r * 0.6 - p * S * 0.3, S * (big ? 0.38 : 0.22) * (0.5 + p), 0, 7); g.fill(); }
+      if (big) { g.fillStyle = `rgba(110,80,50,${1 - p})`; for (let i = 0; i < 8; i++) { const a = i * 0.8 + e.seed * 3, d = S * (0.2 + p * 1.1); g.fillRect(X + Math.cos(a) * d, Y - S * 0.3 + Math.sin(a) * d * 0.5 - Math.sin(p * Math.PI) * S * 0.6, 3, 3); } }
+    }
+  }
   hall(g, tr, X, Y, S, t, season) {
+    if (tr.hallDown) return this.ruins(g, X, Y, S, t);
     const Wd = 3 * S, Ht = 3 * S, bot = Y + Ht * 0.96;
     g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.ellipse(X + Wd / 2, bot, Wd * 0.48, S * 0.2, 0, 0, 7); g.fill();
     g.fillStyle = '#7a5236'; g.fillRect(X + S * 0.2, Y + Ht * 0.48, Wd - S * 0.4, Ht * 0.48);
@@ -562,6 +592,41 @@ export class Renderer {
     this.flag(g, X + Wd / 2, top - S * 0.02, S * 0.7, tr.color, t + b.x);
     if ((b.swing || 0) > 0) { g.fillStyle = '#f1c9a0'; g.beginPath(); g.arc(X + Wd / 2 + S * 0.22, top + S * 0.1, S * 0.08, 0, 7); g.fill(); }
   }
+  // Schmuck: Brunnen, Blumengarten, Statue
+  decor(g, b, X, Y, S, t, game) {
+    const Wd = b.w * S, Ht = b.h * S, cx = X + Wd / 2, bot = Y + Ht * 0.92, winter = game.season === 3;
+    if (b.type === 'well') {
+      g.fillStyle = '#9aa0a8'; g.beginPath(); g.ellipse(cx, bot - S * 0.35, S * 0.62, S * 0.3, 0, 0, 7); g.fill();
+      g.fillStyle = winter ? '#cfe3f0' : '#4a88b8'; g.beginPath(); g.ellipse(cx, bot - S * 0.4, S * 0.46, S * 0.2, 0, 0, 7); g.fill();
+      g.strokeStyle = '#7a7f88'; g.lineWidth = 2; g.beginPath(); g.ellipse(cx, bot - S * 0.35, S * 0.62, S * 0.3, 0, 0, 7); g.stroke();
+      g.fillStyle = '#6b4a2b'; g.fillRect(cx - S * 0.55, bot - S * 1.25, S * 0.08, S * 0.9); g.fillRect(cx + S * 0.47, bot - S * 1.25, S * 0.08, S * 0.9);
+      g.fillStyle = '#7a5236'; g.beginPath(); g.moveTo(cx - S * 0.75, bot - S * 1.15); g.lineTo(cx, bot - S * 1.55); g.lineTo(cx + S * 0.75, bot - S * 1.15); g.closePath(); g.fill();
+      g.strokeStyle = '#5a3a20'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(cx, bot - S * 1.2); g.lineTo(cx, bot - S * 0.75); g.stroke();
+      g.fillStyle = '#9a6a3a'; g.fillRect(cx - S * 0.09, bot - S * 0.78, S * 0.18, S * 0.16);
+      return;
+    }
+    if (b.type === 'garden') {
+      g.fillStyle = winter ? '#d9d4cc' : '#7a5236'; g.beginPath(); g.ellipse(cx, bot - S * 0.45, S * 0.82, S * 0.48, 0, 0, 7); g.fill();
+      const cols = ['#e8584a', '#f2c94b', '#c86ad9', '#ffffff', '#ff9a5a', '#5aa8f2'];
+      for (let i = 0; i < 16; i++) {
+        const a = i * 2.39, r = 0.18 + (i % 4) * 0.15, fx = cx + Math.cos(a) * S * r * 1.5, fy = bot - S * 0.45 + Math.sin(a) * S * r * 0.8;
+        g.strokeStyle = '#3f7a2e'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(fx, fy + S * 0.08); g.lineTo(fx, fy - S * 0.04); g.stroke();
+        if (!winter) { g.fillStyle = cols[i % cols.length]; g.beginPath(); g.arc(fx, fy - S * 0.06 + Math.sin(t * 2 + i) * 0.6, S * 0.06, 0, 7); g.fill(); }
+      }
+      g.strokeStyle = '#b07a42'; g.lineWidth = 2; g.beginPath(); g.ellipse(cx, bot - S * 0.45, S * 0.86, S * 0.52, 0, 0, 7); g.stroke();
+      return;
+    }
+    // Statue: Sockel und Figur mit erhobenem Schwert
+    g.fillStyle = '#9aa0a8'; g.fillRect(cx - S * 0.45, bot - S * 0.5, S * 0.9, S * 0.5);
+    g.fillStyle = '#b9bec6'; g.fillRect(cx - S * 0.55, bot - S * 0.58, S * 1.1, S * 0.12);
+    g.fillStyle = '#c9ccd2';
+    g.beginPath(); g.ellipse(cx, bot - S * 0.95, S * 0.18, S * 0.36, 0, 0, 7); g.fill();
+    g.beginPath(); g.arc(cx, bot - S * 1.42, S * 0.14, 0, 7); g.fill();
+    g.strokeStyle = '#c9ccd2'; g.lineWidth = Math.max(2, S * 0.07);
+    g.beginPath(); g.moveTo(cx + S * 0.14, bot - S * 1.05); g.lineTo(cx + S * 0.32, bot - S * 1.45); g.stroke();
+    g.strokeStyle = '#e8ecf0'; g.lineWidth = Math.max(1.5, S * 0.04); g.beginPath(); g.moveTo(cx + S * 0.32, bot - S * 1.45); g.lineTo(cx + S * 0.38, bot - S * 1.85); g.stroke();
+    if (winter) { g.fillStyle = '#f4f8fb'; g.beginPath(); g.ellipse(cx, bot - S * 1.55, S * 0.12, S * 0.05, 0, 0, 7); g.fill(); }
+  }
   // getroffene Hütte: Brandflecken und ein Riss
   tentDamage(g, X, Y, S, hp) {
     g.fillStyle = 'rgba(40,28,18,0.45)';
@@ -613,7 +678,10 @@ export class Renderer {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.setLineDash([]);
     g.fillStyle = '#2b3a2a'; g.fillRect(0, 0, this.W, this.H);
-    const ox = this.W / 2 - this.cam.x * S, oy = this.H / 2 - this.cam.y * S;
+    let ox = this.W / 2 - this.cam.x * S, oy = this.H / 2 - this.cam.y * S;
+    if (game.shake > 0 && Math.hypot((game.shakeX || 0) - this.cam.x, (game.shakeY || 0) - this.cam.y) < this.W / S) {   // Erschütterung bei Einstürzen in der Nähe
+      const amp = Math.min(7, game.shake * 16); ox += shakeRnd() * amp; oy += shakeRnd() * amp;
+    }
     const x0 = Math.max(0, Math.floor(this.cam.x - this.W / 2 / S) - 1), x1 = Math.min(w.w - 1, Math.ceil(this.cam.x + this.W / 2 / S) + 1);
     const y0 = Math.max(0, Math.floor(this.cam.y - this.H / 2 / S) - 1), y1 = Math.min(w.h - 1, Math.ceil(this.cam.y + this.H / 2 / S) + 2);
     // Boden
@@ -706,7 +774,11 @@ export class Renderer {
       } else if (d.k === 'f') {
         const f = d.f, tr = game.tribes[f.tribe];
         this.person(g, f, S, { shirt: tr.color, band: shade(tr.color, -0.3), weapon: f.type === 'bow' ? 'bow' : 'spear', big: f.type === 'chief', crown: f.type === 'chief' ? tr.color : null, swing: f.swing > 0 ? f.swing : 0, hp: f.hp / f.maxHp, hurt: f.hurtT > 0, carry: f.loot ? Object.keys(f.loot)[0] : null, ox: (cellRand(f.id, 1, 6) - 0.5) * 0.35, oy: (cellRand(f.id, 2, 6) - 0.5) * 0.25, t });
-      } else if (d.k === 'hall') this.hall(g, d.tr, ox + d.tr.hall.x * S, oy + d.tr.hall.y * S, S, t, season);
+      } else if (d.k === 'hall') {
+        const X = ox + d.tr.hall.x * S, Y = oy + d.tr.hall.y * S, hp = d.tr.hall.hp, max = CAMP_BUILD.hall.hp;
+        this.hall(g, d.tr, X, Y, S, t, season);
+        if (!d.tr.hallDown && hp != null && hp < max) { this.tentDamage(g, X + S * 0.5, Y + S * 0.6, S, hp <= max / 2 ? 1 : 2); if (hp <= max / 2) this.tentDamage(g, X + S * 1.2, Y + S * 0.9, S, 1); }
+      }
       else if (d.k === 'tent') { this.tent(g, d.tr, ox + d.h.x * S, oy + d.h.y * S, S, season); if (d.h.hp != null && d.h.hp < 3) this.tentDamage(g, ox + d.h.x * S, oy + d.h.y * S, S, d.h.hp); }
       else if (d.k === 'cat') {
         if (ui.sel && ui.sel.has(d.c.id)) { g.strokeStyle = '#ffd25a'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(ox + d.c.x * S, oy + (d.c.y + 0.12) * S, S * 0.55, S * 0.18, 0, 0, 7); g.stroke(); }
@@ -716,6 +788,7 @@ export class Renderer {
       else if (d.k === 'idle') { d.e.walkT = 0; this.person(g, d.e, S * 0.9, { shirt: d.tr.color, band: shade(d.tr.color, -0.3), weapon: 'spear', t }); }
     }
     for (const sh of game.shots || []) this.shot(g, sh, ox, oy, S);
+    this.effects(g, game, ox, oy, S);
     if (ui.sel && ui.sel.size) this.posts(g, game, ui.sel, ox, oy, S, t);
     if (ui.ping) {
       const age = t - ui.ping.t;
